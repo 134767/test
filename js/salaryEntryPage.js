@@ -1,6 +1,6 @@
-import { getBudgets, getCalendarRows, saveSalaryEntry, getSalaryEntriesByAcademicYear, getSalaryEntriesByDateRange, getUnits } from './dataStore.js?v=1.6.0';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0';
-import { showToast, formatNumber } from './utils.js?v=1.6.0';
+import { getBudgets, getCalendarRows, saveSalaryEntriesBatch, getSalaryEntriesByAcademicYear, getSalaryEntriesByDateRange, getUnits } from './dataStore.js?v=1.6.0-mutation-hotfix-1';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-mutation-hotfix-1';
+import { showToast, formatNumber } from './utils.js?v=1.6.0-mutation-hotfix-1';
 import {
   getDistinctBudgetNames,
   getBudgetYearsForName,
@@ -14,7 +14,7 @@ import {
   validateYm,
   getAcademicYearFromYm,
   evaluateMonthRegistrationForGroup
-} from './budgetGroupUtils.js?v=1.6.0';
+} from './budgetGroupUtils.js?v=1.6.0-mutation-hotfix-1';
 
 let containerEl = null;
 let salaryFilter = { budgetName: '', mode: 'academicYear', academicYear: '', startYm: '', endYm: '', queried: false };
@@ -551,6 +551,7 @@ async function handleSalaryModalSubmit() {
     }
 
     payloads.push({
+      id: item.existingEntry ? item.existingEntry.id : null,
       academicYear: salaryModalState.academicYear,
       year: salaryModalState.year,
       month: salaryModalState.month,
@@ -562,7 +563,7 @@ async function handleSalaryModalSubmit() {
     });
   });
   if (payloads.length) {
-    try { const saved=await runWithMutationUiLock([containerEl.querySelector('#sal-modal-save'),containerEl.querySelector('#sal-modal-cancel')],()=>Promise.all(payloads.map(saveSalaryEntry)),{blocking:true}); savedCount=saved.length; } catch { return; }
+    try { const saved=await runWithMutationUiLock([containerEl.querySelector('#sal-modal-save'),containerEl.querySelector('#sal-modal-cancel')],()=>saveSalaryEntriesBatch(payloads),{blocking:true}); savedCount=saved.length; } catch { return; }
   }
 
   if (savedCount > 0 && errors.length > 0) {

@@ -1,8 +1,8 @@
 // js/budgetPage.js
-import { getBudgets, saveBudget, deleteBudgets, getUnits } from './dataStore.js?v=1.6.0';
-import { formatNumber, showToast } from './utils.js?v=1.6.0';
-import { normalizeBudgetRecord, normalizeBudgetUnitCodes, validateRocAcademicYear } from './budgetGroupUtils.js?v=1.6.0';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0';
+import { getBudgets, saveBudget, deleteBudgets, getUnits } from './dataStore.js?v=1.6.0-mutation-hotfix-1';
+import { formatNumber, showToast } from './utils.js?v=1.6.0-mutation-hotfix-1';
+import { normalizeBudgetRecord, normalizeBudgetUnitCodes, validateRocAcademicYear } from './budgetGroupUtils.js?v=1.6.0-mutation-hotfix-1';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-mutation-hotfix-1';
 
 let currentEditingId = null;
 let containerEl = null;

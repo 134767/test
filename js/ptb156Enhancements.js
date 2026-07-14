@@ -15,19 +15,19 @@ import {
   deleteHolidayName,
   isHolidayNameUsed,
   ensureHolidayNamesFromExistingCalendarHolidays
-} from './dataStore.js?v=1.6.0';
-import { renderHourTable } from './hourSettingPage.js?v=1.6.0';
-import { renderCalendarTable } from './calendarPage.js?v=1.6.0';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0';
+} from './dataStore.js?v=1.6.0-mutation-hotfix-1';
+import { renderHourTable } from './hourSettingPage.js?v=1.6.0-mutation-hotfix-1';
+import { renderCalendarTable } from './calendarPage.js?v=1.6.0-mutation-hotfix-1';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-mutation-hotfix-1';
 import {
   showToast,
   arrayToWeekdays,
   getDatesInRange,
   formatDateForDisplay
-} from './utils.js?v=1.6.0';
-import { findBudgetByOptionValue } from './hourBudgetScopeUtils.js?v=1.6.0';
+} from './utils.js?v=1.6.0-mutation-hotfix-1';
+import { findBudgetByOptionValue } from './hourBudgetScopeUtils.js?v=1.6.0-mutation-hotfix-1';
 
-let hourEditingId = null;
+let deprecatedHourEditingStateId = null;
 let selectedHourUnitCodes = new Set();
 let holidayPage = 'settings';
 let holidayRecordPage = 1;
@@ -41,7 +41,6 @@ export function installPtb156Enhancements() {
   if (!main) return;
 
   const scan = () => {
-    enhanceHourSettingPage(main.querySelector('#page-hour'));
     enhanceCalendarPage(main.querySelector('#page-calendar'));
   };
 
@@ -106,14 +105,13 @@ function enhanceHourSettingPage(root) {
   help.textContent = '新增時數時可複選單位，系統會依單位各建立一筆時數設定；編輯既有資料時維持單一單位。';
   unitButtons.insertAdjacentElement('afterend', help);
 
-  const replacementSave = saveButton.cloneNode(true);
-  saveButton.replaceWith(replacementSave);
+  const replacementSave = saveButton;
   replacementSave.addEventListener('click', () => handleEnhancedHourSave(root));
 
   const addButton = root.querySelector('#btn-add-hour');
   if (addButton) {
     addButton.addEventListener('click', () => {
-      hourEditingId = null;
+      deprecatedHourEditingStateId = null;
       selectedHourUnitCodes.clear();
       setTimeout(() => renderHourUnitButtons(root), 0);
     });
@@ -123,8 +121,8 @@ function enhanceHourSettingPage(root) {
     const editButton = event.target.closest('.btn-edit[data-id]');
     if (!editButton || !root.contains(editButton)) return;
 
-    hourEditingId = editButton.dataset.id || null;
-    const item = getHourSettings().find(row => row.id === hourEditingId);
+    deprecatedHourEditingStateId = editButton.dataset.id || null;
+    const item = getHourSettings().find(row => row.id === deprecatedHourEditingStateId);
     selectedHourUnitCodes = new Set(item && item.unitCode ? [item.unitCode] : []);
     setTimeout(() => renderHourUnitButtons(root), 0);
   });
@@ -147,7 +145,7 @@ function enhanceHourSettingPage(root) {
   const cancelButton = root.querySelector('#hour-cancel-btn');
   if (cancelButton) {
     cancelButton.addEventListener('click', () => {
-      hourEditingId = null;
+      deprecatedHourEditingStateId = null;
       selectedHourUnitCodes.clear();
     });
   }
@@ -165,7 +163,7 @@ function renderHourUnitButtons(root) {
   const hiddenSelect = root.querySelector('#hour-unit');
   if (!wrap) return;
 
-  if (hourEditingId && selectedHourUnitCodes.size === 0 && hiddenSelect && hiddenSelect.value) {
+  if (deprecatedHourEditingStateId && selectedHourUnitCodes.size === 0 && hiddenSelect && hiddenSelect.value) {
     selectedHourUnitCodes.add(hiddenSelect.value);
   }
 
@@ -212,7 +210,7 @@ function renderHourUnitButtons(root) {
     button.classList.toggle('active', selectedHourUnitCodes.has(unit.unitCode));
 
     button.addEventListener('click', () => {
-      if (hourEditingId) {
+      if (deprecatedHourEditingStateId) {
         selectedHourUnitCodes.clear();
         selectedHourUnitCodes.add(unit.unitCode);
       } else if (selectedHourUnitCodes.has(unit.unitCode)) {
@@ -256,7 +254,7 @@ async function handleEnhancedHourSave(root) {
     showToast('學年度、作息類型、實際單位均為必填', 'error');
     return;
   }
-  if (hourEditingId && unitCodes.length !== 1) {
+  if (deprecatedHourEditingStateId && unitCodes.length !== 1) {
     showToast('編輯既有時數設定時只能選擇一個實際單位', 'error');
     return;
   }
@@ -299,7 +297,7 @@ async function handleEnhancedHourSave(root) {
 
   const existing = getHourSettings();
   const duplicates = unitCodes.filter(code => existing.some(item => {
-    if (hourEditingId && item.id === hourEditingId) return false;
+    if (deprecatedHourEditingStateId && item.id === deprecatedHourEditingStateId) return false;
     return item.academicYear === academicYear &&
       item.scheduleType === scheduleType &&
       item.unitCode === code &&
@@ -320,7 +318,7 @@ async function handleEnhancedHourSave(root) {
   const writes = unitCodes.map((code, index) => {
     const unit = unitMap.get(code);
     return saveHourSetting({
-      id: hourEditingId && index === 0 ? hourEditingId : null,
+      id: deprecatedHourEditingStateId && index === 0 ? deprecatedHourEditingStateId : null,
       academicYear,
       scheduleType,
       unitCode: code,
@@ -335,7 +333,7 @@ async function handleEnhancedHourSave(root) {
   });
   try { await runWithMutationUiLock([root.querySelector('#hour-save-btn'),root.querySelector('#hour-cancel-btn')],()=>Promise.all(writes),{blocking:true}); } catch { return; }
 
-  const wasEditing = Boolean(hourEditingId);
+  const wasEditing = Boolean(deprecatedHourEditingStateId);
   const cancelButton = root.querySelector('#hour-cancel-btn');
   if (cancelButton) cancelButton.click();
   renderHourTable();
@@ -355,8 +353,7 @@ function enhanceCalendarPage(root) {
 
   root.dataset.ptb156HolidayEnhanced = 'true';
 
-  const replacementButton = originalButton.cloneNode(true);
-  originalButton.replaceWith(replacementButton);
+  const replacementButton = originalButton;
   replacementButton.addEventListener('click', () => openHolidayModalV2(root));
 
   const oldModal = root.querySelector('#holiday-modal');

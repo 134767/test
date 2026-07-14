@@ -11,20 +11,20 @@ import {
   saveScheduleType,
   deleteScheduleType,
   isScheduleTypeUsed
-} from './dataStore.js?v=1.6.0';
-import { formatNumber, showToast, formatTimeRange, getWeekdaysArray, arrayToWeekdays, renderPagination } from './utils.js?v=1.6.0';
+} from './dataStore.js?v=1.6.0-mutation-hotfix-1';
+import { formatNumber, showToast, formatTimeRange, getWeekdaysArray, arrayToWeekdays, renderPagination } from './utils.js?v=1.6.0-mutation-hotfix-1';
 import {
   buildHourSettingDuplicateKey,
   getUniqueBudgetAcademicYears,
   planBatchHourCopy
-} from './hourBatchUtils.js?v=1.6.0';
+} from './hourBatchUtils.js?v=1.6.0-mutation-hotfix-1';
 import {
   getValidBudgetsForYear,
   findBudgetsByYearAndUnit,
   budgetOptionValue,
   findBudgetByOptionValue
-} from './hourBudgetScopeUtils.js?v=1.6.0';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0';
+} from './hourBudgetScopeUtils.js?v=1.6.0-mutation-hotfix-1';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-mutation-hotfix-1';
 
 export {
   buildHourSettingDuplicateKey,
@@ -32,7 +32,7 @@ export {
   getValidBudgetUnitCodesForYear,
   isUnitInTargetBudgetScope,
   planBatchHourCopy
-} from './hourBatchUtils.js?v=1.6.0';
+} from './hourBatchUtils.js?v=1.6.0-mutation-hotfix-1';
 
 export {
   getValidBudgetsForYear,
@@ -40,7 +40,7 @@ export {
   resolveBudgetForNameAndYear,
   getDistinctValidBudgetNames,
   filterCalendarRowsByBudgetScope
-} from './hourBudgetScopeUtils.js?v=1.6.0';
+} from './hourBudgetScopeUtils.js?v=1.6.0-mutation-hotfix-1';
 
 let containerEl = null;
 let currentEditingId = null;
@@ -913,6 +913,12 @@ function showHourModal(item = null) {
   const note = containerEl.querySelector('#hour-note');
 
   populateScheduleTypeSelect(item ? item.scheduleType : '');
+  const scheduleSelect = containerEl.querySelector('#hour-scheduleType');
+  const unitSelect = containerEl.querySelector('#hour-unit');
+  scheduleSelect.multiple = !item;
+  scheduleSelect.size = item ? 1 : Math.min(5, Math.max(2, scheduleSelect.options.length));
+  unitSelect.multiple = !item;
+  unitSelect.size = item ? 1 : 4;
   start.value = item ? item.startTime : '08:00';
   end.value = item ? item.endTime : '21:30';
   hours.value = item ? item.hours : '';
@@ -966,8 +972,10 @@ function hideHourModal() {
 
 async function handleSaveHourSetting() {
   const ay = containerEl.querySelector('#hour-academicYear').value;
-  const scheduleType = containerEl.querySelector('#hour-scheduleType').value.trim();
-  const unitCode = containerEl.querySelector('#hour-unit').value;
+  const scheduleSelect = containerEl.querySelector('#hour-scheduleType');
+  const unitSelect = containerEl.querySelector('#hour-unit');
+  const scheduleTypes = Array.from(scheduleSelect.selectedOptions).map(option => option.value.trim()).filter(Boolean);
+  const unitCodes = Array.from(unitSelect.selectedOptions).map(option => option.value).filter(Boolean);
   const budgetVal = containerEl.querySelector('#hour-budget-group')?.value || '';
   const start = containerEl.querySelector('#hour-startTime').value;
   const end = containerEl.querySelector('#hour-endTime').value;
@@ -991,11 +999,11 @@ async function handleSaveHourSetting() {
     showToast('請選擇單位', 'error');
     return;
   }
-  if (!unitCode) {
+  if (!unitCodes.length) {
     showToast('請選擇實際單位', 'error');
     return;
   }
-  if (!scheduleType) {
+  if (!scheduleTypes.length) {
     showToast('請選擇作息類型', 'error');
     return;
   }
@@ -1009,18 +1017,21 @@ async function handleSaveHourSetting() {
     showToast('選擇的單位不屬於目前學年度', 'error');
     return;
   }
-  if (!selectedBudget.unitCodes.includes(unitCode)) {
+  if (unitCodes.some(unitCode => !selectedBudget.unitCodes.includes(unitCode))) {
     showToast('實際單位不屬於所選預算單位', 'error');
     return;
   }
 
   // 從 getUnits() 取得 unitName，不允許不存在的單位
-  const unit = getUnits().find(u => u.unitCode === unitCode);
-  if (!unit) {
+  const unitMap = new Map(getUnits().map(unit => [unit.unitCode, unit]));
+  if (unitCodes.some(unitCode => !unitMap.has(unitCode))) {
     showToast('實際單位已不存在於單位設定', 'error');
     return;
   }
-  const unitName = unit.unitName;
+  if (currentEditingId && (scheduleTypes.length !== 1 || unitCodes.length !== 1)) {
+    showToast('編輯既有時數設定時，作息類型與實際單位都只能選擇一個', 'error');
+    return;
+  }
 
   if (selectedDays.length === 0) {
     showToast('至少選擇一個週期類型（星期）', 'error');
@@ -1040,18 +1051,9 @@ async function handleSaveHourSetting() {
   }
 
   // 唯一性檢查：同一學年度 + 作息 + 單位 + 週期 + 開館時間
-  const key = buildHourSettingDuplicateKey({
-    academicYear: ay,
-    scheduleType,
-    unitCode,
-    weekdays: weekdaysStr,
-    startTime: start,
-    endTime: end
-  });
-  const dup = getHourSettings().some(h => {
-    if (currentEditingId && h.id === currentEditingId) return false;
-    return buildHourSettingDuplicateKey(h) === key;
-  });
+  const combinations = scheduleTypes.flatMap(scheduleType => unitCodes.map(unitCode => ({ scheduleType, unitCode })));
+  const existingKeys = new Set(getHourSettings().filter(h => !currentEditingId || h.id !== currentEditingId).map(buildHourSettingDuplicateKey));
+  const dup = combinations.some(item => existingKeys.has(buildHourSettingDuplicateKey({ academicYear:ay, scheduleType:item.scheduleType, unitCode:item.unitCode, weekdays:weekdaysStr, startTime:start, endTime:end })));
 
   if (dup) {
     showToast('同一學年度、作息類型、單位、週期、開館時間不可重複', 'error');
@@ -1060,20 +1062,16 @@ async function handleSaveHourSetting() {
 
   // 不寫入 budgetId / budgetName
   const wasEditing = Boolean(currentEditingId);
-  try { await runWithMutationUiLock([containerEl.querySelector('#hour-save-btn'),containerEl.querySelector('#hour-cancel-btn')],()=>saveHourSetting({
+  const records = combinations.map(({ scheduleType, unitCode }) => ({
     id: currentEditingId,
-    academicYear: ay,
-    scheduleType,
-    unitCode,
-    unitName,
-    weekdays: weekdaysStr,
-    startTime: start,
-    endTime: end,
-    hours: Number(hours),
-    hourlyWage: Number(wage),
-    note
+    academicYear: ay, scheduleType, unitCode, unitName: unitMap.get(unitCode).unitName,
+    weekdays: weekdaysStr, startTime: start, endTime: end,
+    hours: Number(hours), hourlyWage: Number(wage), note
   }));
-  renderHourTable(); hideHourModal(); showToast(wasEditing ? '更新成功' : '新增成功'); } catch {}
+  try {
+    await runWithMutationUiLock([containerEl.querySelector('#hour-save-btn'),containerEl.querySelector('#hour-cancel-btn')],()=>wasEditing ? saveHourSetting(records[0]) : saveHourSettingsBatch(records),{processingLabel:'同步中…'});
+    renderHourTable(); hideHourModal(); showToast(wasEditing ? '已同步' : `已同步（新增 ${records.length} 筆時數設定）`);
+  } catch { renderHourTable(); }
 }
 
 function escapeHtml(str) {

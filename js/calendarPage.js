@@ -6,6 +6,7 @@ import {
   deleteCalendarPeriodsByDateRange,
   addCalendarRows,
   saveCalendarRowsBatch,
+  saveCalendarPeriodRowsBatch,
   deleteCalendarRowsByScope,
   deleteCalendarRowsByCriteria,
   getScheduleTypesByYear,
@@ -23,8 +24,8 @@ import {
   deleteHolidayName,
   isHolidayNameUsed,
   ensureHolidayNamesFromExistingCalendarHolidays
-} from './dataStore.js?v=1.6.0';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0';
+} from './dataStore.js?v=1.6.0-mutation-hotfix-1';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-mutation-hotfix-1';
 import {
   showToast,
   isValidDate,
@@ -37,7 +38,7 @@ import {
   bindDatePickerField,
   inferAcademicYearFromDate,
   renderPagination
-} from './utils.js?v=1.6.0';
+} from './utils.js?v=1.6.0-mutation-hotfix-1';
 import {
   getDistinctValidBudgetNames,
   getYearsForBudgetName,
@@ -45,7 +46,7 @@ import {
   filterCalendarRowsByBudgetScope,
   getAllowedUnitCodesForBudgetNameYear,
   getDuplicateBudgetNameYears
-} from './hourBudgetScopeUtils.js?v=1.6.0';
+} from './hourBudgetScopeUtils.js?v=1.6.0-mutation-hotfix-1';
 
 let containerEl = null;
 
@@ -1277,7 +1278,7 @@ async function handleIntervalConfirm() {
       });
     });
 
-    let batch; try { batch=await runWithMutationUiLock(containerEl.querySelector('#int-confirm-btn'),async()=>{ await Promise.all(dates.map(d=>addCalendarPeriod({date:d,weekday:getWeekdayFromDate(d)}))); return saveCalendarRowsBatch(rowsToAdd); },{blocking:true}); } catch { return; }
+    let batch; try { batch=await runWithMutationUiLock(containerEl.querySelector('#int-confirm-btn'),()=>saveCalendarPeriodRowsBatch(dates.map(d=>({date:d,weekday:getWeekdayFromDate(d)})),rowsToAdd),{blocking:true}); } catch { return; }
     const added = batch.addedRecords || [];
     let msg = `作息區間新增完成（新增 ${added.length} 筆）`;
     if (skippedHolidayCount > 0) {

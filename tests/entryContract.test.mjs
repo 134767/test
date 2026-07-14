@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import path from 'node:path';
 
 const root = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const local = fs.readFileSync(new URL('../local.html', import.meta.url), 'utf8');
@@ -29,7 +30,7 @@ test('local entry declares the localStorage runtime and versioned app asset', ()
 
 test('local entry guard runs before dynamic app import', () => {
   const guard = local.indexOf("allowedHosts.includes(location.hostname)");
-  const load = local.indexOf("import('./js/app.js?v=1.6.0')");
+  const load = local.indexOf("import('./js/app.js?v=1.6.0-mutation-hotfix-1')");
   assert.ok(guard >= 0 && load > guard);
   assert.match(local, /\['localhost', '127\.0\.0\.1', '::1'\]/);
   assert.match(local, /Local Runtime 僅允許從本機 localhost 啟動/);
@@ -42,4 +43,12 @@ test('non-local host returns before runtime configuration and bootstrap', () => 
 
 test('all local browser runtime checks open local.html', () => {
   browserTools.forEach(source => assert.match(source, /BASE = "http:\/\/127\.0\.0\.1:5500\/local\.html"/));
+});
+
+test('legacy 1.6.0 asset query is fully replaced by the mutation hotfix token', () => {
+  const repoRoot = path.resolve(import.meta.dirname, '..');
+  const roots = ['js', 'gas'];
+  const files = roots.flatMap(dir => fs.readdirSync(path.join(repoRoot, dir)).filter(name => /\.(js|gs|html)$/.test(name)).map(name => path.join(repoRoot, dir, name))).concat(path.join(repoRoot, 'local.html'));
+  files.forEach(file => assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /\?v=1\.6\.0(?=['"]|$)/, file));
+  assert.match(local, /1\.6\.0-mutation-hotfix-1/);
 });

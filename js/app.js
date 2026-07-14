@@ -1,18 +1,17 @@
 // js/app.js
 // 應用程式主控：初始化、tab 切換、各頁面載入
 
-import { initDataStore, getDataMode, exportLocalCsvDbSnapshot, resetLocalDataFromCsvDb } from './dataStore.js?v=1.6.0';
-import { installDbFeedback, beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0';
-import { AppState, setCurrentTab } from './state.js?v=1.6.0';
-import { initBudgetPage, renderBudgetTable } from './budgetPage.js?v=1.6.0';
-import { initUnitPage, renderUnitTable } from './unitPage.js?v=1.6.0';
-import { initHourSettingPage, renderHourTable } from './hourSettingPage.js?v=1.6.0';
-import { initCalendarPage, renderCalendarTable } from './calendarPage.js?v=1.6.0';
-import { initSalaryEntryPage, renderSalaryEntryPage } from './salaryEntryPage.js?v=1.6.0';
-import { initDifferenceForecastPage, renderDifferenceForecastPage } from './differenceForecastPage.js?v=1.6.0';
-import { installPtb156Enhancements } from './ptb156Enhancements.js?v=1.6.0';
-import { installPtb156HourFormPatch } from './ptb156HourFormPatch.js?v=1.6.0';
-import { installPtb156cUiSyncPatch } from './ptb156cUiSyncPatch.js?v=1.6.0';
+import { initDataStore, getDataMode, exportLocalCsvDbSnapshot, resetLocalDataFromCsvDb, subscribeCollection } from './dataStore.js?v=1.6.0-mutation-hotfix-1';
+import { installDbFeedback, beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-mutation-hotfix-1';
+import { AppState, setCurrentTab } from './state.js?v=1.6.0-mutation-hotfix-1';
+import { initBudgetPage, renderBudgetTable } from './budgetPage.js?v=1.6.0-mutation-hotfix-1';
+import { initUnitPage, renderUnitTable } from './unitPage.js?v=1.6.0-mutation-hotfix-1';
+import { initHourSettingPage, renderHourTable } from './hourSettingPage.js?v=1.6.0-mutation-hotfix-1';
+import { initCalendarPage, renderCalendarTable } from './calendarPage.js?v=1.6.0-mutation-hotfix-1';
+import { initSalaryEntryPage, renderSalaryEntryPage } from './salaryEntryPage.js?v=1.6.0-mutation-hotfix-1';
+import { initDifferenceForecastPage, renderDifferenceForecastPage } from './differenceForecastPage.js?v=1.6.0-mutation-hotfix-1';
+import { installPtb156Enhancements } from './ptb156Enhancements.js?v=1.6.0-mutation-hotfix-1';
+import { installPtb156cUiSyncPatch } from './ptb156cUiSyncPatch.js?v=1.6.0-mutation-hotfix-1';
 
 let mainContainer = null;
 let tabButtons = {};
@@ -153,8 +152,11 @@ export async function bootstrap() {
   }
 
   initTabs();
+  subscribeCollection(() => {
+    const tabId = AppState.currentTab;
+    if (tabId && currentPageInit[tabId]) refreshPage(tabId);
+  });
   installPtb156Enhancements();
-  installPtb156HourFormPatch();
   switchTab('salaryEntry');
-  setupGlobalClearButton();
+  if (getDataMode() === 'localStorage') setupGlobalClearButton();
 }

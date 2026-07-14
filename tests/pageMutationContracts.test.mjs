@@ -1,11 +1,11 @@
 import test from 'node:test'; import assert from 'node:assert/strict'; import fs from 'node:fs'; import path from 'node:path';
 const root=path.resolve(import.meta.dirname,'..'),read=p=>fs.readFileSync(path.join(root,p),'utf8');
-const pages=['budgetPage.js','unitPage.js','hourSettingPage.js','calendarPage.js','salaryEntryPage.js','differenceForecastPage.js','ptb156HourFormPatch.js','ptb156Enhancements.js'];
+const pages=['budgetPage.js','unitPage.js','hourSettingPage.js','calendarPage.js','salaryEntryPage.js','differenceForecastPage.js','ptb156Enhancements.js'];
 test('pages have no direct google.script.run',()=>pages.forEach(p=>assert.doesNotMatch(read('js/'+p),/google\.script\.run/)));
 test('pages have no business localStorage writes',()=>pages.forEach(p=>assert.doesNotMatch(read('js/'+p),/localStorage\.(setItem|removeItem|clear)/)));
 test('primary pages use shared mutation lock',()=>pages.slice(0,7).forEach(p=>assert.match(read('js/'+p),/runWithMutationUiLock/)));
 test('hour batch uses one batch API',()=>{const s=read('js/hourSettingPage.js');assert.match(s,/await runWithMutationUiLock[\s\S]*saveHourSettingsBatch/);});
 test('calendar uses batch save and scoped delete',()=>{const s=read('js/calendarPage.js');assert.match(s,/saveCalendarRowsBatch/);assert.match(s,/deleteCalendarRowsByScope\(\{selectedBudgetName:/);});
-test('authoritative hour patch awaits writes',()=>{const s=read('js/ptb156HourFormPatch.js');assert.match(s,/async function handlePatchedHourSave/);assert.match(s,/await runWithMutationUiLock/);assert.equal((s.match(/replacement\.addEventListener\('click'/g)||[]).length,1);});
+test('hour patch is no longer loaded and core page owns editing state',()=>{const app=read('js/app.js'),s=read('js/hourSettingPage.js');assert.doesNotMatch(app,/ptb156HourFormPatch/);assert.equal((s.match(/let currentEditingId/g)||[]).length,1);});
 test('public business mutations are Promise-compatible',()=>{const s=read('js/dataStore.js');['saveBudget','deleteBudgets','saveUnit','deleteUnits','saveHourSetting','deleteHourSettings','addCalendarPeriod','deleteCalendarPeriodsByDateRange','saveCalendarHoliday','deleteCalendarHoliday','saveSalaryEntry','saveForecastEvaluation','deleteForecastEvaluation'].forEach(name=>assert.match(s,new RegExp(`export async function ${name}\\(`)));});
 test('salary delete has no active UI flow',()=>{const s=read('js/salaryEntryPage.js');assert.doesNotMatch(s,/deleteSalaryEntry|salary[^\n]{0,30}delete|btn[^\n]{0,30}delete/i);});

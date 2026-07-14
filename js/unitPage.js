@@ -5,9 +5,9 @@ import {
   deleteUnits,
   isUnitUsed,
   moveUnitOrder
-} from './dataStore.js?v=1.6.0';
-import { showToast } from './utils.js?v=1.6.0';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0';
+} from './dataStore.js?v=1.6.0-mutation-hotfix-1';
+import { showToast } from './utils.js?v=1.6.0-mutation-hotfix-1';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-mutation-hotfix-1';
 
 let containerEl = null;
 let currentEditingId = null;
@@ -147,13 +147,15 @@ export function renderUnitTable() {
   });
 
   tbody.querySelectorAll('.btn-unit-move').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const id = btn.dataset.id;
       const direction = btn.dataset.direction;
-      if (moveUnitOrder(id, direction)) {
-        renderUnitTable();
-        showToast('單位排序已更新');
-      }
+      try {
+        if (await moveUnitOrder(id, direction)) {
+          renderUnitTable();
+          showToast('單位排序已同步');
+        }
+      } catch { renderUnitTable(); }
     });
   });
 
