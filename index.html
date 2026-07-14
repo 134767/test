@@ -3,23 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex,nofollow">
   <title>工讀時薪計算系統</title>
   <link rel="stylesheet" href="css/style.css">
 </head>
-<body>
-  <script>window.WORK_STUDY_CONFIG = { DATA_MODE: 'localStorage' };</script>
-  <div class="app-container">
-    <header>
-      <h1>工讀時薪計算系統 <span class="version">版本 1.6.0</span></h1>
-    </header>
-
-    <div id="tab-bar" class="tab-bar"></div>
-    <div id="main-content" class="main-content"></div>
-  </div>
-
-  <script type="module">
-    import { bootstrap } from './js/app.js?v=1.6.0';
-    bootstrap().catch(err => { console.error(err); alert('系統初始化失敗，請重新整理後再試。'); });
-  </script>
+<body style="font-family: sans-serif; line-height: 1.6; margin: 2rem;">
+  <main>
+    <h1>工讀時薪計算系統</h1>
+    <p>此網址僅提供系統靜態資產，不是正式操作入口。<br>請由授權的 Google Apps Script Web App 網址進入系統。</p>
+    <p>若您是系統管理員，請確認 GAS 指令碼屬性與部署設定。</p>
+  </main>
 </body>
 </html>

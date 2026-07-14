@@ -2,7 +2,7 @@
 from playwright.sync_api import sync_playwright
 import json
 
-BASE = "http://127.0.0.1:5500/"
+BASE = "http://127.0.0.1:5500/local.html"
 out = {}
 
 with sync_playwright() as p:

@@ -1,10 +1,18 @@
 # PTB 1.6.0 GAS 人工驗收
 
+正式操作入口僅為 GAS Web App `/exec`。GitHub Pages `/` 是不啟動 App 的靜態說明頁；localhost `/local.html` 才是 localStorage 開發入口。GitHub Pages 不保存業務資料，正式資料僅由 GAS backend 讀寫 Google Sheet。
+
+`localhost/local.html → localStorage（開發測試）`
+
+`GAS /exec → GitHub Pages JS/CSS → google.script.run → GAS → Sheet DB`
+
+`GitHub Pages / → 靜態說明頁，不啟動 App`
+
 1. 建立正式 Sheet 的測試複本並另建備份；確認全程未使用正式 Sheet。
-2. 設定 `PTB_SPREADSHEET_ID`、`PTB_GITHUB_PAGES_BASE_URL`，必要時設定版本與 write mode。
+2. 在正確 Apps Script 專案設定 `PTB_SPREADSHEET_ID`（測試 Sheet 複本）、`PTB_GITHUB_PAGES_BASE_URL=https://134767.github.io/test`、`PTB_APP_VERSION=1.6.0`、`PTB_STATIC_ASSET_VERSION=1.6.0`、`PTB_WRITE_MODE=enabled`；不得把 ID 寫入 source 或 log。
 3. 執行 `inspectPtb160Schema`，保存報告；確認 legacy budget group warning。
 4. 執行 `migratePtb160Schema`，再執行 `verifyPtb160Schema`；逐表核對新增欄在尾端且資料未被改寫。
-5. 設定 GitHub Pages 靜態 asset URL，部署僅授權帳號可用的測試 GAS Web App。
+5. 確認 Pages 根頁只顯示靜態說明、`/local.html` 在公開 host 顯示 localhost-only 警告，且 CSS/JS asset HTTP 200；部署僅授權帳號可用的測試 GAS Web App。
 6. 開啟 `/exec`，驗證 bootstrap 十表、版本、loading、錯誤訊息與無 CSV/localStorage 業務資料 fallback。
 7. 驗證 budgets 新增/編輯/重複名稱/單位重疊；驗證時數設定新增、編輯、note、批次新增及部分成功摘要。
 8. 驗證行事曆初始空白、明確查詢、新增作息、跨年度群組範圍刪除及不影響其他群組。

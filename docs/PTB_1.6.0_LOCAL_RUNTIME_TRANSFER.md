@@ -2,22 +2,22 @@
 
 ## 專案狀態
 
-- **狀態**：PTB 1.6.0 local CSV Runtime（本地驗收完成、跨電腦轉移用）
+- **狀態**：PTB 1.6.0 localhost-only Local Runtime（正式操作入口僅為 GAS `/exec`）
 - **版本**：`1.6.0`
 - **資料模式**：`db/*.csv` 作為首次 seed；CRUD 寫入瀏覽器 `localStorage`
-- **ready_to_port_to_gas**：`false`
+- **入口契約**：GitHub Pages `/` 僅為靜態說明；`/local.html` 在非 localhost 不會 bootstrap
 - **分支性質**：僅供轉移的 checkpoint 分支，**不可直接視為正式 `main`**
 
 ## 自動測試基準
 
 - `node --test tests/*.test.mjs`
-- 基準結果：**55 passed / 0 failed**
+- 基準結果：**88 passed / 0 failed**（hotfix 前）；hotfix 後另加入 entry contract 與 public root guard
 
 ## 本地 Runtime
 
 | 項目 | 值 |
 |------|-----|
-| Runtime URL | http://127.0.0.1:5500/ |
+| Runtime URL | http://127.0.0.1:5500/local.html |
 | 啟動命令 | `python -m http.server 5500 --bind 127.0.0.1` |
 | CSV reset | 瀏覽器主控台執行 `reloadWorkStudyCsvDb()` |
 | CSV snapshot export | 瀏覽器主控台執行 `exportWorkStudyCsvDb()` |
@@ -51,7 +51,9 @@ node --test tests/*.test.mjs
 python -m http.server 5500 --bind 127.0.0.1
 ```
 
-瀏覽器開啟：http://127.0.0.1:5500/
+瀏覽器開啟：http://127.0.0.1:5500/local.html
+
+正式架構：`GAS /exec → GitHub Pages JS/CSS → google.script.run → GAS → Sheet DB`。GitHub Pages 根頁不提供業務操作也不保存業務資料；正式資料僅由 GAS backend 讀寫 Google Sheet。
 
 ### 重要警告
 

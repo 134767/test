@@ -4,7 +4,7 @@ import json
 import sys
 from playwright.sync_api import sync_playwright
 
-BASE = "http://127.0.0.1:5500/"
+BASE = "http://127.0.0.1:5500/local.html"
 OUT = {
     "status": "FAIL",
     "console_errors": [],
