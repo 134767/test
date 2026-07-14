@@ -5,6 +5,8 @@ import {
   addCalendarPeriod,
   deleteCalendarPeriodsByDateRange,
   addCalendarRows,
+  saveCalendarRowsBatch,
+  deleteCalendarRowsByScope,
   deleteCalendarRowsByCriteria,
   getScheduleTypesByYear,
   getUnitsByYearAndType,
@@ -22,6 +24,7 @@ import {
   isHolidayNameUsed,
   ensureHolidayNamesFromExistingCalendarHolidays
 } from './dataStore.js?v=1.6.0';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0';
 import {
   showToast,
   isValidDate,
@@ -857,7 +860,7 @@ function hidePeriodModal() {
   containerEl.querySelector('#period-modal').style.display = 'none';
 }
 
-function handlePeriodConfirm() {
+async function handlePeriodConfirm() {
   const startRaw = containerEl.querySelector('#period-start').value.trim();
   const endRaw = containerEl.querySelector('#period-end').value.trim();
 
@@ -878,11 +881,10 @@ function handlePeriodConfirm() {
     const dates = getDatesInRange(start, end);
     let addedCount = 0;
 
-    dates.forEach(d => {
-      const wd = getWeekdayFromDate(d);
-      const res = addCalendarPeriod({ date: d, weekday: wd });
-      if (res) addedCount++;
-    });
+    let results; try { results=await runWithMutationUiLock(containerEl.querySelector('#period-confirm-btn'),()=>Promise.all(dates.map(d => {
+      const wd = getWeekdayFromDate(d); return addCalendarPeriod({ date: d, weekday: wd });
+    })),{blocking:true}); } catch { return; }
+    addedCount = results.filter(Boolean).length;
 
     showToast(`新增完成（新增 ${addedCount} 天，重複者已略過）`);
   } else {
@@ -890,7 +892,7 @@ function handlePeriodConfirm() {
     if (!confirm(`確定刪除 ${start} ~ ${end} 區間的週期及所有作息資料？`)) {
       return;
     }
-    deleteCalendarPeriodsByDateRange(start, end);
+    try { await runWithMutationUiLock(containerEl.querySelector('#period-confirm-btn'),()=>deleteCalendarPeriodsByDateRange(start, end),{blocking:true}); } catch { return; }
     showToast('刪除週期完成');
   }
 
@@ -1205,7 +1207,7 @@ function updateIntervalPreview() {
   previewEl.appendChild(ul);
 }
 
-function handleIntervalConfirm() {
+async function handleIntervalConfirm() {
   const startRaw = containerEl.querySelector('#int-start').value.trim();
   const endRaw = containerEl.querySelector('#int-end').value.trim();
   const ay = containerEl.querySelector('#int-academicYear').value;
@@ -1245,11 +1247,6 @@ function handleIntervalConfirm() {
 
   if (intervalModalMode === 'add') {
     // 自動建立缺少的 period
-    dates.forEach(d => {
-      const wd = getWeekdayFromDate(d);
-      addCalendarPeriod({ date: d, weekday: wd });
-    });
-
     const rowsToAdd = [];
     let skippedHolidayCount = 0;
 
@@ -1280,7 +1277,8 @@ function handleIntervalConfirm() {
       });
     });
 
-    const added = addCalendarRows(rowsToAdd);
+    let batch; try { batch=await runWithMutationUiLock(containerEl.querySelector('#int-confirm-btn'),async()=>{ await Promise.all(dates.map(d=>addCalendarPeriod({date:d,weekday:getWeekdayFromDate(d)}))); return saveCalendarRowsBatch(rowsToAdd); },{blocking:true}); } catch { return; }
+    const added = batch.addedRecords || [];
     let msg = `作息區間新增完成（新增 ${added.length} 筆）`;
     if (skippedHolidayCount > 0) {
       msg += `，已略過 ${skippedHolidayCount} 個假日日期`;
@@ -1296,14 +1294,7 @@ function handleIntervalConfirm() {
     }
 
     const idsToDelete = Array.from(selectedSourceIdsForDelete);
-    idsToDelete.forEach(id => {
-      deleteCalendarRowsByCriteria({
-        startDate: start,
-        endDate: end,
-        academicYear: ay,
-        sourceHourSettingId: id
-      });
-    });
+    try { await runWithMutationUiLock(containerEl.querySelector('#int-confirm-btn'),()=>deleteCalendarRowsByScope({selectedBudgetName:calendarFilter.selectedBudgetName,startDate:start,endDate:end,academicYear:ay,sourceHourSettingIds:idsToDelete}),{blocking:true}); } catch { return; }
 
     showToast(`作息區間刪除完成（已針對 ${idsToDelete.length} 筆設定）`);
     selectedSourceIdsForDelete.clear();
@@ -1431,9 +1422,9 @@ function renderHolidayRecordListInModal() {
     li.style.marginBottom = '2px';
     li.innerHTML = `<span style="color:#151922;">${formatDateForDisplay(h.date)}</span> ${escapeHtml(h.name)} <span style="color:#c00; cursor:pointer; font-weight:bold;" data-id="${h.id}">×</span>`;
     const delSpan = li.querySelector('span[data-id]');
-    delSpan.addEventListener('click', () => {
+    delSpan.addEventListener('click', async () => {
       if (confirm(`確定刪除 ${formatDateForDisplay(h.date)}「${h.name}」的假日設定？`)) {
-        deleteCalendarHoliday(h.id);
+        try { await runWithMutationUiLock(delSpan,()=>deleteCalendarHoliday(h.id)); } catch { return; }
         renderHolidayListInModal();
         renderCalendarTable();
       }
@@ -1483,14 +1474,14 @@ function renderHolidayNameListInModal() {
     li.style.marginBottom = '2px';
     li.innerHTML = `${escapeHtml(n.name)} <span style="color:#c00; cursor:pointer; font-weight:bold;" data-name="${n.name}" data-id="${n.id}">×</span>`;
     const delSpan = li.querySelector('span[data-id]');
-    delSpan.addEventListener('click', () => {
+    delSpan.addEventListener('click', async () => {
       const name = n.name;
       if (isHolidayNameUsed(name)) {
         showToast('此節日已被假日紀錄使用，請先移除相關假日設定再刪除', 'error');
         return;
       }
       if (confirm(`確定刪除節日名稱「${name}」？`)) {
-        deleteHolidayName(n.id);
+        try { await runWithMutationUiLock(delSpan,()=>deleteHolidayName(n.id)); } catch { return; }
         // 刷新下拉與列表
         populateHolidayNameSelect();
         renderHolidayListInModal();
@@ -1505,7 +1496,7 @@ function renderHolidayNameListInModal() {
   });
 }
 
-function handleHolidaySave() {
+async function handleHolidaySave() {
   const dateRaw = containerEl.querySelector('#holiday-date').value.trim();
   const dateVal = normalizeDateInput(dateRaw);
   const sel = containerEl.querySelector('#holiday-name');
@@ -1526,7 +1517,7 @@ function handleHolidaySave() {
     return;
   }
 
-  const saved = saveCalendarHoliday({ date: dateVal, name });
+  let saved; try { saved=await runWithMutationUiLock(containerEl.querySelector('#holiday-save-btn'),()=>saveCalendarHoliday({ date: dateVal, name })); } catch { return; }
   if (!saved) {
     showToast('此日期已設定假日', 'error');
     return;
@@ -1545,7 +1536,7 @@ function handleHolidaySave() {
   // 不要 hideHolidayModal()
 }
 
-function handleHolidayNameSave() {
+async function handleHolidayNameSave() {
   const input = containerEl.querySelector('#holiday-name-new');
   if (!input) return;
   const name = (input.value || '').trim();
@@ -1554,7 +1545,7 @@ function handleHolidayNameSave() {
     return;
   }
   try {
-    saveHolidayName({ name });
+    await runWithMutationUiLock(containerEl.querySelector('#holiday-name-save-btn'),()=>saveHolidayName({ name }));
     showToast('節日已儲存');
     input.value = '';
     input.focus();

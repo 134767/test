@@ -68,6 +68,12 @@ def main():
         # Calendar note header
         page.click("text=行事曆")
         page.wait_for_timeout(600)
+        # PTB 1.6.0 explicit query: select a budget group before querying.
+        if page.locator("#cal-filter-budget-group").count():
+            options = page.locator("#cal-filter-budget-group option").evaluate_all("els => els.map(e => e.value).filter(Boolean)")
+            if options:
+                page.select_option("#cal-filter-budget-group", options[0])
+                page.wait_for_timeout(300)
         # query if needed
         if page.locator("#cal-filter-query").count():
             page.click("#cal-filter-query")

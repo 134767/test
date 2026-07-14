@@ -2,6 +2,7 @@
 import { getBudgets, saveBudget, deleteBudgets, getUnits } from './dataStore.js?v=1.6.0';
 import { formatNumber, showToast } from './utils.js?v=1.6.0';
 import { normalizeBudgetRecord, normalizeBudgetUnitCodes, validateRocAcademicYear } from './budgetGroupUtils.js?v=1.6.0';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0';
 
 let currentEditingId = null;
 let containerEl = null;
@@ -64,7 +65,7 @@ function renderUnitButtons(codes=[]) {
   if (!getUnits().length) wrap.innerHTML = '<div class="help-text">尚無單位設定</div>';
 }
 
-function handleDeleteSelected() { const ids = Array.from(containerEl.querySelectorAll('#budget-tbody .row-check:checked')).map(c=>c.dataset.id); if(!ids.length) return showToast('請先勾選要刪除的資料','error'); if(confirm(`確定要刪除選取的 ${ids.length} 筆預算嗎？`)){ deleteBudgets(ids); showToast('刪除成功'); renderBudgetTable(); } }
+async function handleDeleteSelected() { const ids = Array.from(containerEl.querySelectorAll('#budget-tbody .row-check:checked')).map(c=>c.dataset.id); if(!ids.length) return showToast('請先勾選要刪除的資料','error'); if(confirm(`確定要刪除選取的 ${ids.length} 筆預算嗎？`)){ try { await runWithMutationUiLock(containerEl.querySelector('#btn-delete-budget'),()=>deleteBudgets(ids)); showToast('刪除成功'); renderBudgetTable(); } catch {} } }
 function showBudgetModal(item=null) {
   const b = normalizeBudgetRecord(item||{});
   const ayInput = containerEl.querySelector('#budget-academicYear');
@@ -81,7 +82,7 @@ function showBudgetModal(item=null) {
 }
 function hideBudgetModal(){ containerEl.querySelector('#budget-modal').style.display='none'; containerEl.querySelector('#budget-academicYear').disabled=false; currentEditingId=null; selectedUnitCodes=[]; }
 
-function handleSaveBudget() {
+async function handleSaveBudget() {
   const ay = containerEl.querySelector('#budget-academicYear').value.trim(); const name = containerEl.querySelector('#budget-name').value.trim(); const amtStr = containerEl.querySelector('#budget-amount').value.trim(); const note = containerEl.querySelector('#budget-note').value.trim(); const amount = Number(amtStr); const codes = normalizeBudgetUnitCodes(selectedUnitCodes);
   if (!validateRocAcademicYear(ay)) return showToast('學年度必須為正整數（例如 114）','error');
   if (!name) return showToast('單位名稱不可空白','error');
@@ -94,9 +95,9 @@ function handleSaveBudget() {
     for (const c of codes) if (b0.unitCodes.includes(c)) return showToast(`單位「${units.get(c)||c}」已屬於 ${ay} 學年度的「${b0.budgetName}」。`, 'error');
   }
   const wasEditing = Boolean(currentEditingId);
-  saveBudget({ id: currentEditingId, academicYear: ay, budgetName: name, unitCodes: codes, budgetAmount: amount, note });
-  hideBudgetModal();
-  showToast(wasEditing ? '更新成功' : '新增成功');
-  renderBudgetTable();
+  try {
+    await runWithMutationUiLock([containerEl.querySelector('#budget-save-btn'),containerEl.querySelector('#budget-cancel-btn')],()=>saveBudget({ id: currentEditingId, academicYear: ay, budgetName: name, unitCodes: codes, budgetAmount: amount, note }));
+    renderBudgetTable(); hideBudgetModal(); showToast(wasEditing ? '更新成功' : '新增成功');
+  } catch {}
 }
 function escapeHtml(str){ return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }

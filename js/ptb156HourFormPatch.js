@@ -11,6 +11,7 @@ import {
 import { renderHourTable } from './hourSettingPage.js?v=1.6.0';
 import { showToast, arrayToWeekdays } from './utils.js?v=1.6.0';
 import { findBudgetByOptionValue } from './hourBudgetScopeUtils.js?v=1.6.0';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0';
 
 let currentEditingId = null;
 let selectedScheduleTypes = new Set();
@@ -250,7 +251,7 @@ function renderScheduleTypeButtons(root) {
   if (hiddenSelect) hiddenSelect.value = Array.from(selectedScheduleTypes)[0] || '';
 }
 
-function handlePatchedHourSave(root) {
+async function handlePatchedHourSave(root) {
   const academicYear = valueOf(root, '#hour-academicYear');
   const startTime = valueOf(root, '#hour-startTime');
   const endTime = valueOf(root, '#hour-endTime');
@@ -348,9 +349,9 @@ function handlePatchedHourSave(root) {
     return;
   }
 
-  combinations.forEach((combination, index) => {
+  const writes = combinations.map((combination, index) => {
     const unit = unitMap.get(combination.unitCode);
-    saveHourSetting({
+    return saveHourSetting({
       id: currentEditingId && index === 0 ? currentEditingId : null,
       academicYear,
       scheduleType: combination.scheduleType,
@@ -364,6 +365,7 @@ function handlePatchedHourSave(root) {
       note
     });
   });
+  try { await runWithMutationUiLock([root.querySelector('#hour-save-btn'),root.querySelector('#hour-cancel-btn')],()=>Promise.all(writes),{blocking:true}); } catch { return; }
 
   const wasEditing = Boolean(currentEditingId);
   const cancelButton = root.querySelector('#hour-cancel-btn');

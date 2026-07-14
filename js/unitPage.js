@@ -7,6 +7,7 @@ import {
   moveUnitOrder
 } from './dataStore.js?v=1.6.0';
 import { showToast } from './utils.js?v=1.6.0';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0';
 
 let containerEl = null;
 let currentEditingId = null;
@@ -171,7 +172,7 @@ function getSelectedUnitIds() {
   return Array.from(checks).map(c => c.dataset.id);
 }
 
-function handleDeleteSelected() {
+async function handleDeleteSelected() {
   const ids = getSelectedUnitIds();
   if (ids.length === 0) {
     showToast('請先勾選要刪除的資料', 'error');
@@ -199,9 +200,7 @@ function handleDeleteSelected() {
 
   if (!confirm(`確定刪除選取的 ${safeIds.length} 筆單位嗎？`)) return;
 
-  deleteUnits(safeIds);
-  showToast('刪除成功');
-  renderUnitTable();
+  try { await runWithMutationUiLock(containerEl.querySelector('#btn-delete-unit'),()=>deleteUnits(safeIds)); showToast('刪除成功'); renderUnitTable(); } catch {}
 }
 
 function showUnitModal(item = null) {
@@ -240,7 +239,7 @@ function hideUnitModal() {
   currentEditingId = null;
 }
 
-function handleSaveUnit() {
+async function handleSaveUnit() {
   const code = containerEl.querySelector('#unit-code').value.trim();
   const name = containerEl.querySelector('#unit-name').value.trim();
   const colorKey = containerEl.querySelector('#unit-color').value || 'default';
@@ -270,17 +269,15 @@ function handleSaveUnit() {
     }
   }
 
-  saveUnit({
+  const wasEditing = Boolean(currentEditingId);
+  try { await runWithMutationUiLock([containerEl.querySelector('#unit-save-btn'),containerEl.querySelector('#unit-cancel-btn')],()=>saveUnit({
     id: currentEditingId,
     unitCode: code,
     unitName: name,
     colorKey,
     note
-  });
-
-  hideUnitModal();
-  showToast(currentEditingId ? '更新成功' : '新增成功');
-  renderUnitTable();
+  }));
+  renderUnitTable(); hideUnitModal(); showToast(wasEditing ? '更新成功' : '新增成功'); } catch {}
 }
 
 function escapeHtml(str) {

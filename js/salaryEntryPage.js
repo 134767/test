@@ -1,4 +1,5 @@
 import { getBudgets, getCalendarRows, saveSalaryEntry, getSalaryEntriesByAcademicYear, getSalaryEntriesByDateRange, getUnits } from './dataStore.js?v=1.6.0';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0';
 import { showToast, formatNumber } from './utils.js?v=1.6.0';
 import {
   getDistinctBudgetNames,
@@ -531,10 +532,11 @@ function renderModalUnitTable() {
   }));
 }
 
-function handleSalaryModalSubmit() {
+async function handleSalaryModalSubmit() {
   let savedCount = 0;
   const errors = [];
 
+  const payloads = [];
   salaryModalState.unitsData.forEach(item => {
     const check = validateSalaryModalUnit({
       unitName: item.unitName,
@@ -548,7 +550,7 @@ function handleSalaryModalSubmit() {
       return;
     }
 
-    saveSalaryEntry({
+    payloads.push({
       academicYear: salaryModalState.academicYear,
       year: salaryModalState.year,
       month: salaryModalState.month,
@@ -558,8 +560,10 @@ function handleSalaryModalSubmit() {
       actualAmount: Number(item.salaryAmount) || 0,
       note: item.note || ''
     });
-    savedCount += 1;
   });
+  if (payloads.length) {
+    try { const saved=await runWithMutationUiLock([containerEl.querySelector('#sal-modal-save'),containerEl.querySelector('#sal-modal-cancel')],()=>Promise.all(payloads.map(saveSalaryEntry)),{blocking:true}); savedCount=saved.length; } catch { return; }
+  }
 
   if (savedCount > 0 && errors.length > 0) {
     hideSalaryModal();

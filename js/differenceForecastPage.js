@@ -13,6 +13,7 @@ import {
   deleteForecastEvaluation,
   generateForecastEvaluationId
 } from './dataStore.js?v=1.6.0';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0';
 import { formatNumber, showToast, escapeHtml } from './utils.js?v=1.6.0';
 import {
   validateRocAcademicYear,
@@ -1284,7 +1285,7 @@ function closeForecastEvalModal() {
   if (modal) modal.style.display = 'none';
 }
 
-function handleSaveEvaluation() {
+async function handleSaveEvaluation() {
   const data = getModalFormData();
   const loadSel = containerEl.querySelector('#fe-load-select');
   const selectedId = loadSel ? loadSel.value : '';
@@ -1332,7 +1333,8 @@ function handleSaveEvaluation() {
     toSave.id = selectedId;
   }
 
-  const saved = saveForecastEvaluation(toSave);
+  let saved;
+  try { saved=await runWithMutationUiLock([containerEl.querySelector('#fe-modal-save'),containerEl.querySelector('#fe-modal-cancel')],()=>saveForecastEvaluation(toSave)); } catch { return; }
   currentEvaluation = saved;
   activeForecastEvaluationId = saved ? saved.id : '';
 
@@ -1352,7 +1354,7 @@ function updateForecastDeleteButtonState() {
   btn.disabled = !activeForecastEvaluationId;
 }
 
-function handleDeleteForecastEvaluation() {
+async function handleDeleteForecastEvaluation() {
   if (!activeForecastEvaluationId) {
     showToast('請先載入要刪除的評估紀錄', 'error');
     return;
@@ -1373,7 +1375,7 @@ function handleDeleteForecastEvaluation() {
   }
 
   try {
-    deleteForecastEvaluation(activeForecastEvaluationId);
+    await runWithMutationUiLock(containerEl.querySelector('#forecast-delete-evaluation-btn'),()=>deleteForecastEvaluation(activeForecastEvaluationId));
     showToast('評估紀錄已刪除');
 
     // 清空表單與狀態

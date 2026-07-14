@@ -59,6 +59,12 @@ let _isInitializing = false;
 let _syncTimers = {};
 let _syncUiTokens = {};
 let _syncGenerations = {};
+const GAS_ACTIONS = new Set([
+  'saveBudget','deleteBudget','saveUnit','deleteUnit','saveHourSetting','saveHourSettingsBatch','deleteHourSettings',
+  'saveCalendarPeriod','deleteCalendarPeriods','saveCalendarRowsBatch','deleteCalendarRowsByScope',
+  'saveCalendarHoliday','deleteCalendarHoliday','saveSalaryEntry','deleteSalaryEntry',
+  'saveForecastEvaluation','deleteForecastEvaluation','saveScheduleType','deleteScheduleType','saveHolidayName','deleteHolidayName'
+]);
 
 function _emptyCache() {
   return {
@@ -138,10 +144,10 @@ function _getCollection(name) {
 function _setCollection(name, data, options = {}) {
   const sync = options.sync !== false;
   _cache[name] = data;
-  _saveLocal(name, data); // GAS 模式也保留 local mirror，方便離線除錯與避免重整掉資料
+  if (_dataMode !== 'gasSheet') _saveLocal(name, data);
 
   if (_dataMode === 'gasSheet' && _gasReady && !_isInitializing && sync && _isGasWriteEnabled()) {
-    _scheduleCollectionSync(name);
+    console.warn(`[DataStore] ${name} must use an explicit GAS mutation API`);
   }
 }
 
@@ -214,7 +220,7 @@ function _scheduleCollectionSync(name) {
 }
 
 async function _loadFromGasSheet() {
-  const result = await _serverCall('getInitialData', {});
+  const result = await _serverCall('getWorkStudyBootstrapData', {});
 
   if (!result || result.ok === false) {
     const message =
@@ -228,14 +234,13 @@ async function _loadFromGasSheet() {
     throw new Error('GAS Sheet backend response missing data.');
   }
 
-  const data = result.data;
+  const payload = result.result || result;
+  const data = payload.data;
 
   COLLECTIONS.forEach(name => {
     const rows = Array.isArray(data[name]) ? data[name] : [];
     _cache[name] = rows;
-    _saveLocal(name, rows);
   });
-  localStorage.setItem(LS_KEYS.seeded, 'true');
   _gasReady = true;
   console.log('[DataStore] loaded from GAS Sheet backend');
 }
@@ -351,6 +356,60 @@ export function getDataMode() {
   return _dataMode;
 }
 
+export async function callGasMutation(action, payload = {}, collection = '') {
+  if (_dataMode !== 'gasSheet') throw new Error('callGasMutation 僅適用於 gasSheet 模式');
+  if (!GAS_ACTIONS.has(action)) throw new Error(`不允許的 GAS 操作：${action}`);
+  const response = await _serverCall(action, payload);
+  if (!response || response.ok === false) {
+    const err = new Error(response?.message || response?.error || 'GAS 連線失敗');
+    err.code = response?.code || 'GAS_ERROR';
+    err.details = response?.details || {};
+    throw err;
+  }
+  const result = response.result ?? response;
+  if (collection && Array.isArray(result?.addedRecords)) {
+    _cache[collection] = [...(_cache[collection] || []), ...result.addedRecords];
+  }
+  return result;
+}
+
+function _upsertCacheRecord(collection, record) {
+  const current = _cache[collection] || [];
+  const idx = current.findIndex(item => item.id === record.id);
+  _cache[collection] = idx < 0 ? [...current, record] : current.map((item, i) => i === idx ? record : item);
+  return record;
+}
+
+function _removeConfirmedCacheIds(collection, ids) {
+  const confirmed = new Set((ids || []).map(String));
+  _cache[collection] = (_cache[collection] || []).filter(item => !confirmed.has(String(item.id)));
+}
+
+export async function saveHourSettingsBatch(records) {
+  if (_dataMode !== 'gasSheet') {
+    const addedRecords = await Promise.all((records || []).map(record => saveHourSetting(record)));
+    return { selected: records.length, added: addedRecords.length, addedRecords, skipped: [] };
+  }
+  return callGasMutation('saveHourSettingsBatch', { records }, 'hourSettings');
+}
+
+export async function saveCalendarRowsBatch(records) {
+  if (_dataMode !== 'gasSheet') { const addedRecords=addCalendarRows(records); return { addedRecords, added: addedRecords.length }; }
+  return callGasMutation('saveCalendarRowsBatch', { records }, 'calendarRows');
+}
+
+export async function deleteCalendarRowsByScope(payload) {
+  if (_dataMode !== 'gasSheet') {
+    const budgets = (_cache.budgets || []).filter(b=>b.budgetName===payload.selectedBudgetName);
+    const byYear = new Map(budgets.map(b=>[String(b.academicYear),new Set(normalizeBudgetUnitCodes(b.unitCodes))]));
+    const sourceIds = new Set(payload.sourceHourSettingIds || []);
+    const deletedIds = (_cache.calendarRows || []).filter(r=>r.date>=payload.startDate&&r.date<=payload.endDate&&byYear.get(String(r.academicYear))?.has(String(r.unitCode))&&(!sourceIds.size||sourceIds.has(r.sourceHourSettingId))).map(r=>r.id);
+    _removeConfirmedCacheIds('calendarRows',deletedIds); _saveLocal('calendarRows',_cache.calendarRows);
+    return { deletedIds, deletedCount: deletedIds.length };
+  }
+  const result=await callGasMutation('deleteCalendarRowsByScope', payload); _removeConfirmedCacheIds('calendarRows',result.deletedIds); return result;
+}
+
 export function exportLocalCsvDbSnapshot() {
   exportCsvDbSnapshot(_snapshotCollections());
 }
@@ -376,7 +435,8 @@ export function getBudgets() {
   return [..._getCollection('budgets')].map(normalizeBudgetRecord);
 }
 
-export function saveBudget(budget) {
+export async function saveBudget(budget) {
+  if (_dataMode === 'gasSheet') return _upsertCacheRecord('budgets', await callGasMutation('saveBudget', budget));
   const list = _getCollection('budgets');
   const now = new Date().toISOString();
   const normalized = normalizeBudgetRecord(budget);
@@ -412,18 +472,22 @@ export function saveBudget(budget) {
   return newItem;
 }
 
-export function deleteBudgets(ids) {
+export async function deleteBudgets(ids) {
+  if (_dataMode === 'gasSheet') { const r=await callGasMutation('deleteBudget',{ids}); _removeConfirmedCacheIds('budgets',r.deletedIds); return r; }
   let list = _getCollection('budgets');
   list = list.filter(b => !ids.includes(b.id));
   _setCollection('budgets', list);
+  return { deletedIds: ids, deletedCount: ids.length };
 }
+export const deleteBudget = deleteBudgets;
 
 // ===== UNITS =====
 export function getUnits() {
   return [..._getCollection('units')];
 }
 
-export function saveUnit(unit) {
+export async function saveUnit(unit) {
+  if (_dataMode === 'gasSheet') return _upsertCacheRecord('units', await callGasMutation('saveUnit', unit));
   const list = _getCollection('units');
   const now = new Date().toISOString();
   let newItem;
@@ -466,11 +530,14 @@ export function saveUnit(unit) {
   return newItem;
 }
 
-export function deleteUnits(ids) {
+export async function deleteUnits(ids) {
+  if (_dataMode === 'gasSheet') { const r=await callGasMutation('deleteUnit',{ids}); _removeConfirmedCacheIds('units',r.deletedIds); return r; }
   let list = _getCollection('units');
   list = list.filter(u => !ids.includes(u.id));
   _setCollection('units', list);
+  return { deletedIds: ids, deletedCount: ids.length };
 }
+export const deleteUnit = deleteUnits;
 
 export function moveUnitOrder(id, direction) {
   const list = _getCollection('units');
@@ -505,7 +572,8 @@ export function getScheduleTypes() {
   return [..._getCollection('scheduleTypes')];
 }
 
-export function saveScheduleType(payload) {
+export async function saveScheduleType(payload) {
+  if (_dataMode === 'gasSheet') return _upsertCacheRecord('scheduleTypes', await callGasMutation('saveScheduleType', payload));
   const list = _getCollection('scheduleTypes');
   const now = new Date().toISOString();
   let name = (payload.name || '').trim();
@@ -556,10 +624,12 @@ export function saveScheduleType(payload) {
   return newItem;
 }
 
-export function deleteScheduleType(id) {
+export async function deleteScheduleType(id) {
+  if (_dataMode === 'gasSheet') { const r=await callGasMutation('deleteScheduleType',{ids:[id]}); _removeConfirmedCacheIds('scheduleTypes',r.deletedIds); return r; }
   let list = _getCollection('scheduleTypes');
   list = list.filter(s => s.id !== id);
   _setCollection('scheduleTypes', list, { sync: false });
+  return { deletedIds:[id], deletedCount:1 };
 }
 
 export function isScheduleTypeUsed(name) {
@@ -572,6 +642,7 @@ export function isScheduleTypeUsed(name) {
 }
 
 export function ensureScheduleTypesFromExistingHourSettings() {
+  if (_dataMode === 'gasSheet') return;
   const types = _getCollection('scheduleTypes');
   if (types.length > 0) return; // 已有則不處理
 
@@ -628,7 +699,8 @@ export function getHolidayNameOptionsFromCalendarHolidays() {
   return Array.from(map.values());
 }
 
-export function saveHolidayName(payload) {
+export async function saveHolidayName(payload) {
+  if (_dataMode === 'gasSheet') return _upsertCacheRecord('holidayNames', await callGasMutation('saveHolidayName', payload));
   const list = _getCollection('holidayNames');
   const now = new Date().toISOString();
   let name = (payload.name || '').trim();
@@ -679,10 +751,12 @@ export function saveHolidayName(payload) {
   return newItem;
 }
 
-export function deleteHolidayName(id) {
+export async function deleteHolidayName(id) {
+  if (_dataMode === 'gasSheet') { const r=await callGasMutation('deleteHolidayName',{ids:[id]}); _removeConfirmedCacheIds('holidayNames',r.deletedIds); return r; }
   let list = _getCollection('holidayNames');
   list = list.filter(h => h.id !== id);
   _setCollection('holidayNames', list, { sync: false });
+  return { deletedIds:[id], deletedCount:1 };
 }
 
 export function isHolidayNameUsed(name) {
@@ -692,6 +766,7 @@ export function isHolidayNameUsed(name) {
 }
 
 export function ensureHolidayNamesFromExistingCalendarHolidays() {
+  if (_dataMode === 'gasSheet') return;
   const names = _getCollection('holidayNames');
   if (names.length > 0) return; // 已有則不處理
 
@@ -727,7 +802,8 @@ export function getHourSettings() {
   return [..._getCollection('hourSettings')];
 }
 
-export function saveHourSetting(setting) {
+export async function saveHourSetting(setting) {
+  if (_dataMode === 'gasSheet') return _upsertCacheRecord('hourSettings', await callGasMutation('saveHourSetting', setting));
   const list = _getCollection('hourSettings');
   const now = new Date().toISOString();
   let newItem;
@@ -768,10 +844,12 @@ export function saveHourSetting(setting) {
   return newItem;
 }
 
-export function deleteHourSettings(ids) {
+export async function deleteHourSettings(ids) {
+  if (_dataMode === 'gasSheet') { const r=await callGasMutation('deleteHourSettings',{ids}); _removeConfirmedCacheIds('hourSettings',r.deletedIds); return r; }
   let list = _getCollection('hourSettings');
   list = list.filter(h => !ids.includes(h.id));
   _setCollection('hourSettings', list);
+  return { deletedIds: ids, deletedCount: ids.length };
 }
 
 // 檢查時數設定是否被行事曆使用
@@ -785,7 +863,8 @@ export function getCalendarPeriods() {
   return [..._getCollection('calendarPeriods')];
 }
 
-export function addCalendarPeriod(period) {
+export async function addCalendarPeriod(period) {
+  if (_dataMode === 'gasSheet') return _upsertCacheRecord('calendarPeriods', await callGasMutation('saveCalendarPeriod', period));
   const list = _getCollection('calendarPeriods');
   const exists = list.some(p => p.date === period.date);
   if (exists) return null;
@@ -801,7 +880,8 @@ export function addCalendarPeriod(period) {
   return newItem;
 }
 
-export function deleteCalendarPeriodsByDateRange(startDate, endDate) {
+export async function deleteCalendarPeriodsByDateRange(startDate, endDate) {
+  if (_dataMode === 'gasSheet') { const ids=(_cache.calendarPeriods||[]).filter(p=>p.date>=startDate&&p.date<=endDate).map(p=>p.id); const r=await callGasMutation('deleteCalendarPeriods',{ids,startDate,endDate}); _removeConfirmedCacheIds('calendarPeriods',r.deletedIds); _removeConfirmedCacheIds('calendarRows',r.deletedCalendarRowIds||[]); return r; }
   // 刪除 period 及該區間內的 rows
   let periods = _getCollection('calendarPeriods');
   let rows = _getCollection('calendarRows');
@@ -821,6 +901,7 @@ export function deleteCalendarPeriodsByDateRange(startDate, endDate) {
 
   _setCollection('calendarPeriods', periods);
   _setCollection('calendarRows', rows);
+  return { deletedCount: 0 };
 }
 
 // ===== CALENDAR ROWS =====
@@ -888,7 +969,8 @@ export function getCalendarHolidays() {
   return [..._getCollection('calendarHolidays')];
 }
 
-export function saveCalendarHoliday(payload) {
+export async function saveCalendarHoliday(payload) {
+  if (_dataMode === 'gasSheet') return _upsertCacheRecord('calendarHolidays', await callGasMutation('saveCalendarHoliday', payload));
   const list = _getCollection('calendarHolidays');
   const now = new Date().toISOString();
   const date = payload.date; // 預期 'YYYY-MM-DD'
@@ -918,10 +1000,12 @@ export function saveCalendarHoliday(payload) {
   return newItem;
 }
 
-export function deleteCalendarHoliday(id) {
+export async function deleteCalendarHoliday(id) {
+  if (_dataMode === 'gasSheet') { const r=await callGasMutation('deleteCalendarHoliday',{ids:[id]}); _removeConfirmedCacheIds('calendarHolidays',r.deletedIds); return r; }
   let list = _getCollection('calendarHolidays');
   list = list.filter(h => h.id !== id);
   _setCollection('calendarHolidays', list);
+  return { deletedIds: [id], deletedCount: 1 };
 }
 
 export function findCalendarHolidayByDate(date) {
@@ -1003,7 +1087,8 @@ export function getSalaryEntries() {
   return [..._getCollection('salaryEntries')];
 }
 
-export function saveSalaryEntry(entry) {
+export async function saveSalaryEntry(entry) {
+  if (_dataMode === 'gasSheet') return _upsertCacheRecord('salaryEntries', await callGasMutation('saveSalaryEntry', entry));
   const list = _getCollection('salaryEntries');
   const now = new Date().toISOString();
 
@@ -1078,10 +1163,12 @@ export function saveSalaryEntry(entry) {
   return newItem;
 }
 
-export function deleteSalaryEntry(id) {
+export async function deleteSalaryEntry(id) {
+  if (_dataMode === 'gasSheet') { const r=await callGasMutation('deleteSalaryEntry',{ids:[id]}); _removeConfirmedCacheIds('salaryEntries',r.deletedIds); return r; }
   let list = _getCollection('salaryEntries');
   list = list.filter(e => e.id !== id);
   _setCollection('salaryEntries', list);
+  return { deletedIds: [id], deletedCount: 1 };
 }
 
 export function getSalaryEntriesByAcademicYear(academicYear) {
@@ -1111,7 +1198,8 @@ export function generateForecastEvaluationId() {
   return 'FE_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
 }
 
-export function saveForecastEvaluation(evaluation) {
+export async function saveForecastEvaluation(evaluation) {
+  if (_dataMode === 'gasSheet') return _upsertCacheRecord('forecastEvaluations', await callGasMutation('saveForecastEvaluation', evaluation));
   const list = _getCollection('forecastEvaluations');
   const now = new Date().toISOString();
   let newItem;
@@ -1157,8 +1245,10 @@ export function saveForecastEvaluation(evaluation) {
   return newItem;
 }
 
-export function deleteForecastEvaluation(id) {
+export async function deleteForecastEvaluation(id) {
+  if (_dataMode === 'gasSheet') { const r=await callGasMutation('deleteForecastEvaluation',{ids:[id]}); _removeConfirmedCacheIds('forecastEvaluations',r.deletedIds); return r; }
   let list = _getCollection('forecastEvaluations');
   list = list.filter(ev => ev.id !== id);
   _setCollection('forecastEvaluations', list);
+  return { deletedIds: [id], deletedCount: 1 };
 }

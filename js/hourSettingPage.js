@@ -4,6 +4,7 @@ import {
   getUnits,
   getHourSettings,
   saveHourSetting,
+  saveHourSettingsBatch,
   deleteHourSettings,
   isHourSettingUsed,
   getScheduleTypes,
@@ -23,6 +24,7 @@ import {
   budgetOptionValue,
   findBudgetByOptionValue
 } from './hourBudgetScopeUtils.js?v=1.6.0';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0';
 
 export {
   buildHourSettingDuplicateKey,
@@ -575,7 +577,7 @@ export function updateBatchAddButtonState() {
   btn.disabled = count === 0;
 }
 
-function handleDeleteSelected() {
+async function handleDeleteSelected() {
   const ids = getSelectedHourIds();
   if (ids.length === 0) {
     showToast('請先勾選要刪除的資料', 'error');
@@ -602,10 +604,7 @@ function handleDeleteSelected() {
 
   if (!confirm(`確定刪除 ${deletable.length} 筆時數設定？`)) return;
 
-  deleteHourSettings(deletable);
-  showToast('刪除成功');
-  renderHourTable();
-  updateBatchAddButtonState();
+  try { await runWithMutationUiLock(containerEl.querySelector('#btn-delete-hour'),()=>deleteHourSettings(deletable)); showToast('刪除成功'); renderHourTable(); updateBatchAddButtonState(); } catch {}
 }
 
 // ===== Batch Add =====
@@ -774,7 +773,7 @@ export function hideBatchAddHourModal() {
   clearBatchResultPanel();
 }
 
-export function handleBatchAddHourSettings() {
+export async function handleBatchAddHourSettings() {
   if (!containerEl) return;
 
   const yearSel = containerEl.querySelector('#hour-batch-target-year');
@@ -805,18 +804,11 @@ export function handleBatchAddHourSettings() {
     budgets: getBudgets()
   });
 
-  // 實際寫入：使用既有 saveHourSetting（無 id → 產生新 id）
-  const saved = [];
   const sourceSnapshot = new Map(getHourSettings().map(h => [h.id, { ...h }]));
-
-  plan.toAdd.forEach(entry => {
-    const created = saveHourSetting({ ...entry.payload }); // no id
-    if (created && created.id) saved.push(created);
-  });
-
-  // 重新計算 counters.added 以實際寫入為準
-  const counters = { ...plan.counters, added: saved.length };
-  const finalPlan = { ...plan, counters, saved };
+  let result;
+  try { result = await runWithMutationUiLock([containerEl.querySelector('#hour-batch-confirm-btn'),containerEl.querySelector('#hour-batch-cancel-btn')],()=>saveHourSettingsBatch(plan.toAdd.map(entry=>({...entry.payload,sourceId:entry.sourceId}))),{blocking:true}); } catch { return; }
+  const counters = { ...plan.counters, ...result, added: result.added || 0 };
+  const finalPlan = { ...plan, counters, saved: result.addedRecords || [], skipped: [...plan.skipped,...(result.skipped||[])] };
 
   // 驗證來源未被改動
   let sourceUnchanged = true;
@@ -972,7 +964,7 @@ function hideHourModal() {
   setHourBudgetHint('');
 }
 
-function handleSaveHourSetting() {
+async function handleSaveHourSetting() {
   const ay = containerEl.querySelector('#hour-academicYear').value;
   const scheduleType = containerEl.querySelector('#hour-scheduleType').value.trim();
   const unitCode = containerEl.querySelector('#hour-unit').value;
@@ -1067,7 +1059,8 @@ function handleSaveHourSetting() {
   }
 
   // 不寫入 budgetId / budgetName
-  saveHourSetting({
+  const wasEditing = Boolean(currentEditingId);
+  try { await runWithMutationUiLock([containerEl.querySelector('#hour-save-btn'),containerEl.querySelector('#hour-cancel-btn')],()=>saveHourSetting({
     id: currentEditingId,
     academicYear: ay,
     scheduleType,
@@ -1079,11 +1072,8 @@ function handleSaveHourSetting() {
     hours: Number(hours),
     hourlyWage: Number(wage),
     note
-  });
-
-  hideHourModal();
-  showToast(currentEditingId ? '更新成功' : '新增成功');
-  renderHourTable();
+  }));
+  renderHourTable(); hideHourModal(); showToast(wasEditing ? '更新成功' : '新增成功'); } catch {}
 }
 
 function escapeHtml(str) {
@@ -1145,13 +1135,13 @@ function renderScheduleTypeListInModal() {
     li.style.marginBottom = '2px';
     li.innerHTML = `<span style="color:#151922;">${escapeHtml(t.name)}</span> <span style="color:#c00; cursor:pointer; font-weight:bold;" data-id="${t.id}">×</span>`;
     const delSpan = li.querySelector('span[data-id]');
-    delSpan.addEventListener('click', () => {
+    delSpan.addEventListener('click', async () => {
       if (isScheduleTypeUsed(t.name)) {
         showToast('此作息類型已被時數設定或行事曆使用，請先移除相關資料再刪除', 'error');
         return;
       }
       if (confirm(`確定刪除作息類型「${t.name}」？`)) {
-        deleteScheduleType(t.id);
+        try { await runWithMutationUiLock(delSpan,()=>deleteScheduleType(t.id)); } catch { return; }
         renderScheduleTypeListInModal();
         // 若 hour modal 開啟，也刷新其下拉
         const hourM = containerEl.querySelector('#hour-modal');
@@ -1171,7 +1161,7 @@ function renderScheduleTypeListInModal() {
   });
 }
 
-function handleScheduleTypeSave() {
+async function handleScheduleTypeSave() {
   const input = containerEl.querySelector('#stype-name');
   if (!input) return;
   const name = input.value.trim();
@@ -1181,7 +1171,7 @@ function handleScheduleTypeSave() {
   }
 
   try {
-    saveScheduleType({ name });
+    await runWithMutationUiLock(containerEl.querySelector('#stype-save-btn'),()=>saveScheduleType({ name }));
   } catch (e) {
     const msg = e && e.message ? e.message : '儲存失敗';
     if (msg.includes('已存在') || msg.includes('重複')) {

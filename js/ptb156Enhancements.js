@@ -18,6 +18,7 @@ import {
 } from './dataStore.js?v=1.6.0';
 import { renderHourTable } from './hourSettingPage.js?v=1.6.0';
 import { renderCalendarTable } from './calendarPage.js?v=1.6.0';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0';
 import {
   showToast,
   arrayToWeekdays,
@@ -230,7 +231,7 @@ function renderHourUnitButtons(root) {
   if (hiddenSelect) hiddenSelect.value = Array.from(selectedHourUnitCodes)[0] || '';
 }
 
-function handleEnhancedHourSave(root) {
+async function handleEnhancedHourSave(root) {
   const academicYear = valueOf(root, '#hour-academicYear');
   const scheduleType = valueOf(root, '#hour-scheduleType').trim();
   const startTime = valueOf(root, '#hour-startTime');
@@ -316,9 +317,9 @@ function handleEnhancedHourSave(root) {
     return;
   }
 
-  unitCodes.forEach((code, index) => {
+  const writes = unitCodes.map((code, index) => {
     const unit = unitMap.get(code);
-    saveHourSetting({
+    return saveHourSetting({
       id: hourEditingId && index === 0 ? hourEditingId : null,
       academicYear,
       scheduleType,
@@ -332,6 +333,7 @@ function handleEnhancedHourSave(root) {
       note
     });
   });
+  try { await runWithMutationUiLock([root.querySelector('#hour-save-btn'),root.querySelector('#hour-cancel-btn')],()=>Promise.all(writes),{blocking:true}); } catch { return; }
 
   const wasEditing = Boolean(hourEditingId);
   const cancelButton = root.querySelector('#hour-cancel-btn');
@@ -443,9 +445,6 @@ function enhanceCalendarPage(root) {
 function openHolidayModalV2(root) {
   const before = getHolidayNames().length;
   ensureHolidayNamesFromExistingCalendarHolidays();
-  if (getHolidayNames().length !== before) {
-    persistHolidayNamesToGas().catch(error => console.warn('[PTB 1.5.6] holiday name migration sync failed', error));
-  }
 
   holidayRecordPage = 1;
   holidayNamePage = 1;
@@ -514,7 +513,7 @@ function populateHolidayNameSelectV2(root) {
   select.value = names.some(item => item.name === selected) ? selected : '';
 }
 
-function saveHolidayRange(root) {
+async function saveHolidayRange(root) {
   const start = valueOf(root, '#holiday-start-v2');
   const end = valueOf(root, '#holiday-end-v2') || start;
   const name = valueOf(root, '#holiday-name-v2').trim();
@@ -533,13 +532,15 @@ function saveHolidayRange(root) {
   let added = 0;
   let skipped = 0;
 
+  const writes = [];
   dates.forEach(date => {
     if (existingDates.has(date)) {
       skipped += 1;
       return;
     }
-    if (saveCalendarHoliday({ date, name })) added += 1;
+    writes.push(saveCalendarHoliday({ date, name }));
   });
+  try { const saved=await runWithMutationUiLock(root.querySelector('#holiday-save-v2'),()=>Promise.all(writes),{blocking:true}); added=saved.filter(Boolean).length; } catch { return; }
 
   if (added === 0) {
     showToast('所選日期皆已設定假日', 'error');
@@ -567,10 +568,8 @@ async function saveHolidayMasterName(root) {
 
   let saved;
   try {
-    saved = saveHolidayName({ name });
-    await persistHolidayNamesToGas();
+    saved = await runWithMutationUiLock(root.querySelector('#holiday-name-save-v2'),()=>saveHolidayName({ name }));
   } catch (error) {
-    if (saved && saved.id) deleteHolidayName(saved.id);
     showToast(error && error.message ? error.message : '節日儲存失敗', 'error');
     return;
   }
@@ -604,9 +603,9 @@ function renderHolidayRecordListV2(root) {
         <span class="ptb-record-main">${escapeHtml(formatDateForDisplay(record.date))}　${escapeHtml(record.name)}</span>
         <button type="button" class="ptb-delete-link" title="刪除">×</button>
       `;
-      item.querySelector('button').addEventListener('click', () => {
+      item.querySelector('button').addEventListener('click', async () => {
         if (!confirm(`確定刪除 ${formatDateForDisplay(record.date)}「${record.name}」的假日設定？`)) return;
-        deleteCalendarHoliday(record.id);
+        try { await runWithMutationUiLock(item.querySelector('button'),()=>deleteCalendarHoliday(record.id)); } catch { return; }
         renderHolidayRecordListV2(root);
         renderCalendarTable();
         showToast('假日設定已刪除');
@@ -649,11 +648,9 @@ function renderHolidayNameListV2(root) {
         }
         if (!confirm(`確定刪除節日名稱「${record.name}」？`)) return;
 
-        deleteHolidayName(record.id);
         try {
-          await persistHolidayNamesToGas();
+          await runWithMutationUiLock(item.querySelector('button'),()=>deleteHolidayName(record.id));
         } catch (error) {
-          saveHolidayName(record);
           showToast(error && error.message ? error.message : '節日刪除失敗', 'error');
           return;
         }
@@ -706,30 +703,6 @@ function renderPageControls(container, pageData, onPageChange) {
   next.addEventListener('click', () => onPageChange(pageData.page + 1));
 
   container.append(previous, label, next);
-}
-
-function persistHolidayNamesToGas() {
-  if (getDataMode() !== 'gasSheet') return Promise.resolve({ ok: true, mode: 'local' });
-
-  if (!window.google || !window.google.script || !window.google.script.run) {
-    return Promise.reject(new Error('目前無法連線至 GAS Sheet DB'));
-  }
-
-  return new Promise((resolve, reject) => {
-    window.google.script.run
-      .withSuccessHandler(result => {
-        if (!result || result.ok === false) {
-          reject(new Error((result && (result.error || result.message)) || '節日名稱寫入 Sheet DB 失敗'));
-          return;
-        }
-        resolve(result);
-      })
-      .withFailureHandler(error => reject(error instanceof Error ? error : new Error(String(error))))
-      .runServerFunction('replaceCollection', {
-        collection: 'holidayNames',
-        rows: getHolidayNames()
-      });
-  });
 }
 
 function escapeHtml(value) {
