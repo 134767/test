@@ -59,6 +59,7 @@ let _isInitializing = false;
 export const COLLECTION_SYNC_DEBOUNCE_MS = 250;
 const _collectionStates = new Map();
 const _collectionSubscribers = new Set();
+let _reservationGate = Promise.resolve();
 const GAS_ACTIONS = new Set([
   'saveBudget','deleteBudget','saveUnit','deleteUnit','saveHourSetting','saveHourSettingsBatch','deleteHourSettings',
   'saveCalendarPeriod','deleteCalendarPeriods','saveCalendarRowsBatch','deleteCalendarRowsByScope',
@@ -96,7 +97,7 @@ function _stateFor(name) {
   _assertCollection(name);
   if (!_collectionStates.has(name)) {
     _collectionStates.set(name, {
-      confirmedRows: _clone(_cache[name] || []), timer: null, inFlight: null,
+      confirmedRows: _clone(_cache[name] || []), timer: null, inFlight: null, batchInFlight: null,
       dirtyGeneration: 0, confirmedGeneration: 0, waiters: [], uiToken: null
     });
   }
@@ -155,6 +156,68 @@ function _isGasWriteEnabled() {
   return runtime.writeMode === 'enabled';
 }
 
+function assertGasMutationAllowed() {
+  if (_dataMode === 'gasSheet' && !_isGasWriteEnabled()) {
+    const error = new Error('目前未開放寫入');
+    error.code = 'WRITE_DISABLED';
+    throw error;
+  }
+}
+
+function _deferred() {
+  let resolve;
+  const promise = new Promise(done => { resolve = done; });
+  return { promise, resolve };
+}
+
+async function _withReservationGate(callback) {
+  const previous = _reservationGate;
+  const next = _deferred();
+  _reservationGate = next.promise;
+  await previous;
+  try { return await callback(); } finally { next.resolve(); }
+}
+
+export async function reserveCollectionsForBatch(collectionNames) {
+  const names = [...new Set(collectionNames || [])].sort();
+  if (!names.length) throw new Error('batch collections 不可空白');
+  names.forEach(name => _assertCollection(name, true));
+  let token;
+  while (!token) {
+    let conflicts = [];
+    token = await _withReservationGate(() => {
+      conflicts = [...new Set(names.map(name => _stateFor(name).batchInFlight).filter(Boolean))];
+      if (conflicts.length) return null;
+      const done = _deferred();
+      const reservation = { names, done: done.promise, release: done.resolve };
+      names.forEach(name => { _stateFor(name).batchInFlight = reservation; });
+      return reservation;
+    });
+    if (!token) await Promise.all(conflicts.map(conflict => conflict.done));
+  }
+  try {
+    for (const name of names) {
+      const state = _stateFor(name);
+      clearTimeout(state.timer);
+      state.timer = null;
+      if (state.inFlight) await state.inFlight;
+      if (state.dirtyGeneration > state.confirmedGeneration) await flushCollectionSync(name);
+    }
+    return token;
+  } catch (error) {
+    releaseCollectionsFromBatch(names, token);
+    throw error;
+  }
+}
+
+export function releaseCollectionsFromBatch(collectionNames, token) {
+  [...new Set(collectionNames || [])].sort().forEach(name => {
+    const state = _stateFor(name);
+    if (state.batchInFlight === token) state.batchInFlight = null;
+  });
+  token?.release?.();
+}
+
 function _loadLocal(name) {
   try {
     const raw = localStorage.getItem(LS_KEYS[name]);
@@ -182,6 +245,14 @@ function _getCollection(name) {
 
 export function setCollection(name, data, options = {}) {
   _assertCollection(name);
+  if (_dataMode === 'gasSheet' && options.sync !== false) {
+    assertGasMutationAllowed();
+    if (_stateFor(name).batchInFlight) {
+      const error = new Error(`${name} 正在執行 batch mutation`);
+      error.code = 'COLLECTION_BUSY';
+      throw error;
+    }
+  }
   if (!Array.isArray(data)) throw new TypeError(`${name} 必須是 array`);
   const rows = _clone(data);
   _cache[name] = rows;
@@ -214,7 +285,7 @@ function _collectionLabel(name) {
 export function scheduleCollectionSync(name, options = {}) {
   _assertCollection(name, true);
   if (_dataMode !== 'gasSheet') return Promise.resolve(_clone(_cache[name] || []));
-  if (!_isGasWriteEnabled()) return Promise.reject(new Error('目前未開放寫入'));
+  try { assertGasMutationAllowed(); } catch (error) { return Promise.reject(error); }
   const state = _stateFor(name);
   state.dirtyGeneration += 1;
   const generation = state.dirtyGeneration;
@@ -289,6 +360,11 @@ export function rollbackCollection(name, error) {
 
 export function mutateCollection(name, mutator, reason = 'mutation') {
   _assertCollection(name, true);
+  assertGasMutationAllowed();
+  const state = _stateFor(name);
+  if (_dataMode === 'gasSheet' && state.batchInFlight) {
+    return state.batchInFlight.done.then(() => mutateCollection(name, mutator, reason));
+  }
   const before = _clone(_getCollection(name));
   const candidate = mutator(_clone(before));
   if (!Array.isArray(candidate)) throw new TypeError('collection mutator 必須回傳 array');
@@ -296,27 +372,56 @@ export function mutateCollection(name, mutator, reason = 'mutation') {
   return _dataMode === 'gasSheet' ? scheduleCollectionSync(name, { reason }) : Promise.resolve(_clone(candidate));
 }
 
-export async function mutateCollectionsBatch(candidates, reason = 'batch mutation') {
-  const names = Object.keys(candidates || {});
+export async function mutateCollectionsBatch(collectionNames, buildCandidates, reason = 'batch mutation') {
+  const names = [...new Set(collectionNames || [])].sort();
   if (!names.length) throw new Error('batch collections 不可空白');
   names.forEach(name => _assertCollection(name, true));
-  const before = Object.fromEntries(names.map(name => [name, _clone(_getCollection(name))]));
-  names.forEach(name => _setCollection(name, candidates[name], { sync: false, phase: 'optimistic', event: { reason } }));
-  if (_dataMode !== 'gasSheet') return Object.fromEntries(names.map(name => [name, _clone(_cache[name])]));
+  if (typeof buildCandidates !== 'function') throw new TypeError('buildCandidates 必須是 function');
+  assertGasMutationAllowed();
+  if (_dataMode !== 'gasSheet') {
+    const current = Object.fromEntries(names.map(name => [name, _clone(_getCollection(name))]));
+    const candidates = buildCandidates(current);
+    names.forEach(name => _setCollection(name, candidates[name], { sync: false, phase: 'optimistic', event: { reason } }));
+    return Object.fromEntries(names.map(name => [name, _clone(_cache[name])]));
+  }
+  const reservation = await reserveCollectionsForBatch(names);
   const clientMutationId = _mutationId('batch', Date.now());
   try {
+    const current = Object.fromEntries(names.map(name => [name, _clone(_cache[name])]));
+    const candidates = buildCandidates(current);
+    names.forEach(name => {
+      if (!Array.isArray(candidates?.[name])) throw new TypeError(`batch candidate 缺少 ${name}`);
+      const state = _stateFor(name);
+      state.dirtyGeneration += 1;
+      _setCollection(name, candidates[name], { sync: false, phase: 'optimistic', event: { reason } });
+    });
     const result = await callGasMutation('replaceCollectionsBatch', { collections: Object.fromEntries(names.map(name => [name, _clone(_cache[name])])), clientMutationId });
     if (!result?.collections) throw new Error('replaceCollectionsBatch 未回傳 authoritative collections');
     names.forEach(name => {
       if (!Array.isArray(result.collections[name])) throw new Error(`batch response 缺少 ${name}`);
+      const state = _stateFor(name);
+      state.confirmedRows = _clone(result.collections[name]);
+      state.confirmedGeneration = state.dirtyGeneration;
       _cache[name] = _clone(result.collections[name]);
-      const state = _stateFor(name); state.confirmedRows = _clone(result.collections[name]);
+      const completed = state.waiters.splice(0);
+      completed.forEach(waiter => waiter.resolve(_clone(result.collections[name])));
       _emitCollectionChanged(name, 'authoritative', { clientMutationId });
     });
     return result.collections;
   } catch (error) {
-    names.forEach(name => { _cache[name] = before[name]; _emitCollectionChanged(name, 'rollback', { error, clientMutationId }); });
+    names.forEach(name => {
+      const state = _stateFor(name);
+      clearTimeout(state.timer);
+      state.timer = null;
+      _cache[name] = _clone(state.confirmedRows);
+      state.dirtyGeneration = state.confirmedGeneration;
+      const waiters = state.waiters.splice(0);
+      waiters.forEach(waiter => waiter.reject(error));
+      _emitCollectionChanged(name, 'rollback', { error, clientMutationId });
+    });
     throw error;
+  } finally {
+    releaseCollectionsFromBatch(names, reservation);
   }
 }
 
@@ -483,56 +588,58 @@ function _removeConfirmedCacheIds(collection, ids) {
 }
 
 async function _saveCollectionRecord(collection, input, prefix, normalize = value => value) {
-  const current = _clone(_getCollection(collection));
-  const now = new Date().toISOString();
   const normalized = normalize({ ...(input || {}) });
   let id = String(normalized.id || '').trim();
-  let index = id ? current.findIndex(row => String(row.id) === id) : -1;
-  if (id && index < 0) {
-    const error = new Error(`EDIT_TARGET_NOT_FOUND: ${collection}/${id}`);
-    error.code = 'EDIT_TARGET_NOT_FOUND';
-    throw error;
-  }
   if (!id) id = _newId(prefix);
-  const existing = index >= 0 ? current[index] : null;
-  const nextRecord = { ...(existing || {}), ...normalized, id, createdAt: existing?.createdAt || now, updatedAt: now };
-  const candidate = index >= 0 ? current.map((row, i) => i === index ? nextRecord : row) : [...current, nextRecord];
-  const rows = await mutateCollection(collection, () => candidate, index >= 0 ? 'edit' : 'create');
+  let nextRecord;
+  const rows = await mutateCollection(collection, current => {
+    const now = new Date().toISOString();
+    const index = normalized.id ? current.findIndex(row => String(row.id) === id) : -1;
+    if (normalized.id && index < 0) {
+      const error = new Error(`EDIT_TARGET_NOT_FOUND: ${collection}/${id}`);
+      error.code = 'EDIT_TARGET_NOT_FOUND';
+      throw error;
+    }
+    const existing = index >= 0 ? current[index] : null;
+    nextRecord = { ...(existing || {}), ...normalized, id, createdAt: existing?.createdAt || now, updatedAt: now };
+    return index >= 0 ? current.map((row, i) => i === index ? nextRecord : row) : [...current, nextRecord];
+  }, normalized.id ? 'edit' : 'create');
   return rows.find(row => String(row.id) === id) || nextRecord;
 }
 
 async function _deleteCollectionRecords(collection, ids) {
   const wanted = [...new Set((ids || []).map(String).filter(Boolean))];
-  const current = _clone(_getCollection(collection));
-  const existing = new Set(current.map(row => String(row.id)));
-  const missing = wanted.filter(id => !existing.has(id));
-  if (missing.length) {
-    const error = new Error(`DELETE_TARGET_NOT_FOUND: ${collection}/${missing.join(',')}`);
-    error.code = 'DELETE_TARGET_NOT_FOUND';
-    throw error;
-  }
-  await mutateCollection(collection, rows => rows.filter(row => !wanted.includes(String(row.id))), 'delete');
+  await mutateCollection(collection, rows => {
+    const existing = new Set(rows.map(row => String(row.id)));
+    const missing = wanted.filter(id => !existing.has(id));
+    if (missing.length) {
+      const error = new Error(`DELETE_TARGET_NOT_FOUND: ${collection}/${missing.join(',')}`);
+      error.code = 'DELETE_TARGET_NOT_FOUND';
+      throw error;
+    }
+    return rows.filter(row => !wanted.includes(String(row.id)));
+  }, 'delete');
   return { deletedIds: wanted, deletedCount: wanted.length };
 }
 
 export async function saveHourSettingsBatch(records) {
   const source = Array.isArray(records) ? records : [];
-  const current = _clone(_getCollection('hourSettings'));
   const now = new Date().toISOString();
   const addedRecords = source.map(record => ({ ...record, id: record.id || _newId('HOUR'), createdAt: now, updatedAt: now }));
-  const candidate = [...current, ...addedRecords];
-  const rows = _dataMode === 'gasSheet' ? await mutateCollection('hourSettings', () => candidate, 'hour batch create') : await _setCollection('hourSettings', candidate);
+  const rows = _dataMode === 'gasSheet' ? await mutateCollection('hourSettings', current => [...current, ...addedRecords], 'hour batch create') : await _setCollection('hourSettings', [..._clone(_getCollection('hourSettings')), ...addedRecords]);
   const ids = new Set(addedRecords.map(row => row.id));
   return { selected: source.length, added: addedRecords.length, addedRecords: rows.filter(row => ids.has(row.id)), skipped: [] };
 }
 
 export async function saveCalendarRowsBatch(records) {
   if (_dataMode !== 'gasSheet') { const addedRecords=addCalendarRows(records); return { addedRecords, added: addedRecords.length }; }
-  const current = _clone(_getCollection('calendarRows'));
-  const keys = new Set(current.map(r => `${r.date}|${r.academicYear}|${r.scheduleType}|${r.unitCode}|${r.startTime}|${r.endTime}`));
   const now = new Date().toISOString();
-  const addedRecords = (records || []).filter(row => { const key=`${row.date}|${row.academicYear}|${row.scheduleType}|${row.unitCode}|${row.startTime}|${row.endTime}`; if(keys.has(key))return false; keys.add(key); return true; }).map(row => ({ ...row, id: row.id || _newId('ROW'), createdAt: now }));
-  const rows = await mutateCollection('calendarRows', () => [...current, ...addedRecords], 'calendar rows batch create');
+  const addedRecords = [];
+  const rows = await mutateCollection('calendarRows', current => {
+    const keys = new Set(current.map(r => `${r.date}|${r.academicYear}|${r.scheduleType}|${r.unitCode}|${r.startTime}|${r.endTime}`));
+    (records || []).forEach(row => { const key=`${row.date}|${row.academicYear}|${row.scheduleType}|${row.unitCode}|${row.startTime}|${row.endTime}`; if(!keys.has(key)){keys.add(key);addedRecords.push({ ...row, id: row.id || _newId('ROW'), createdAt: now });} });
+    return [...current, ...addedRecords];
+  }, 'calendar rows batch create');
   const ids = new Set(addedRecords.map(row => row.id));
   return { addedRecords: rows.filter(row => ids.has(row.id)), added: addedRecords.length };
 }
@@ -542,13 +649,15 @@ export async function saveCalendarPeriodRowsBatch(periodsToAdd, rowsToAdd) {
     await Promise.all((periodsToAdd || []).map(addCalendarPeriod));
     return saveCalendarRowsBatch(rowsToAdd || []);
   }
-  const periodDates = new Set((_cache.calendarPeriods || []).map(row => row.date));
-  const now = new Date().toISOString();
-  const periods = [..._clone(_cache.calendarPeriods || []), ...(periodsToAdd || []).filter(row => { if(periodDates.has(row.date))return false; periodDates.add(row.date); return true; }).map(row => ({...row,id:row.id||_newId('PERIOD'),createdAt:now}))];
-  const rowKeys = new Set((_cache.calendarRows || []).map(r => `${r.date}|${r.academicYear}|${r.scheduleType}|${r.unitCode}|${r.startTime}|${r.endTime}`));
-  const added = (rowsToAdd || []).filter(row => {const key=`${row.date}|${row.academicYear}|${row.scheduleType}|${row.unitCode}|${row.startTime}|${row.endTime}`;if(rowKeys.has(key))return false;rowKeys.add(key);return true;}).map(row => ({...row,id:row.id||_newId('ROW'),createdAt:now}));
-  const rows = [..._clone(_cache.calendarRows || []), ...added];
-  const result = await mutateCollectionsBatch({calendarPeriods:periods,calendarRows:rows},'calendar period rows batch');
+  let added = [];
+  const result = await mutateCollectionsBatch(['calendarPeriods','calendarRows'], current => {
+    const now = new Date().toISOString();
+    const periodDates = new Set(current.calendarPeriods.map(row => row.date));
+    const periods = [...current.calendarPeriods, ...(periodsToAdd || []).filter(row => { if(periodDates.has(row.date))return false; periodDates.add(row.date); return true; }).map(row => ({...row,id:row.id||_newId('PERIOD'),createdAt:now}))];
+    const rowKeys = new Set(current.calendarRows.map(r => `${r.date}|${r.academicYear}|${r.scheduleType}|${r.unitCode}|${r.startTime}|${r.endTime}`));
+    added = (rowsToAdd || []).filter(row => {const key=`${row.date}|${row.academicYear}|${row.scheduleType}|${row.unitCode}|${row.startTime}|${row.endTime}`;if(rowKeys.has(key))return false;rowKeys.add(key);return true;}).map(row => ({...row,id:row.id||_newId('ROW'),createdAt:now}));
+    return {calendarPeriods:periods,calendarRows:[...current.calendarRows,...added]};
+  },'calendar period rows batch');
   const ids = new Set(added.map(row => row.id));
   return {added:added.length,addedRecords:result.calendarRows.filter(row => ids.has(row.id))};
 }
@@ -699,21 +808,18 @@ export async function deleteUnits(ids) {
 export const deleteUnit = deleteUnits;
 
 export async function moveUnitOrder(id, direction) {
-  const list = _getCollection('units');
-  const idx = list.findIndex(u => u.id === id);
-  if (idx === -1) return false;
-
-  const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
-  if (targetIdx < 0 || targetIdx >= list.length) return false;
-
-  const next = [...list];
-  const temp = next[idx];
-  next[idx] = next[targetIdx];
-  next[targetIdx] = temp;
-
-  if (_dataMode === 'gasSheet') await mutateCollection('units', () => next, 'reorder');
-  else await _setCollection('units', next);
-  return true;
+  let moved = false;
+  const reorder = list => {
+    const idx = list.findIndex(u => u.id === id), targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (idx < 0 || targetIdx < 0 || targetIdx >= list.length) return list;
+    const next = [...list];
+    [next[idx], next[targetIdx]] = [next[targetIdx], next[idx]];
+    moved = true;
+    return next;
+  };
+  if (_dataMode === 'gasSheet') await mutateCollection('units', reorder, 'reorder');
+  else await _setCollection('units', reorder(_clone(_getCollection('units'))));
+  return moved;
 }
 
 // 檢查單位是否被使用（時數設定或行事曆）
@@ -1045,9 +1151,10 @@ export async function addCalendarPeriod(period) {
 
 export async function deleteCalendarPeriodsByDateRange(startDate, endDate) {
   if (_dataMode === 'gasSheet') {
-    const periods = (_cache.calendarPeriods || []).filter(p => p.date < startDate || p.date > endDate);
-    const rows = (_cache.calendarRows || []).filter(r => r.date < startDate || r.date > endDate);
-    await mutateCollectionsBatch({ calendarPeriods: periods, calendarRows: rows }, 'delete calendar date range');
+    await mutateCollectionsBatch(['calendarPeriods','calendarRows'], current => ({
+      calendarPeriods: current.calendarPeriods.filter(p => p.date < startDate || p.date > endDate),
+      calendarRows: current.calendarRows.filter(r => r.date < startDate || r.date > endDate)
+    }), 'delete calendar date range');
     return { deletedCount: 0 };
   }
   // 刪除 period 及該區間內的 rows
@@ -1139,12 +1246,15 @@ export function getCalendarHolidays() {
 
 export async function saveCalendarHoliday(payload) {
   if (_dataMode === 'gasSheet') {
-    if ((_cache.calendarHolidays || []).some(row => row.date === payload.date)) return null;
-    const now = new Date().toISOString();
-    const holiday = { ...payload, id: payload.id || _newId('HOLIDAY'), createdAt: now, updatedAt: now };
-    const holidays = [..._clone(_cache.calendarHolidays || []), holiday];
-    const rows = _clone(_cache.calendarRows || []).filter(row => row.date !== payload.date);
-    const result = await mutateCollectionsBatch({ calendarHolidays: holidays, calendarRows: rows }, 'create holiday');
+    let holiday = null;
+    const result = await mutateCollectionsBatch(['calendarHolidays','calendarRows'], current => {
+      if (current.calendarHolidays.some(row => row.date === payload.date)) {
+        const error = new Error('此日期已設定假日'); error.code = 'DUPLICATE'; throw error;
+      }
+      const now = new Date().toISOString();
+      holiday = { ...payload, id: payload.id || _newId('HOLIDAY'), createdAt: now, updatedAt: now };
+      return {calendarHolidays:[...current.calendarHolidays,holiday],calendarRows:current.calendarRows.filter(row => row.date !== payload.date)};
+    }, 'create holiday');
     return result.calendarHolidays.find(row => row.id === holiday.id) || holiday;
   }
   const list = _getCollection('calendarHolidays');
@@ -1273,24 +1383,24 @@ export function inspectSalaryEntryDuplicates(rows = getSalaryEntries()) {
 
 export async function saveSalaryEntriesBatch(entries) {
   const source = Array.isArray(entries) ? entries : [];
-  const current = _clone(_getCollection('salaryEntries'));
-  const now = new Date().toISOString();
   const touchedIds = [];
-  source.forEach(raw => {
-    const item = { ...raw, actualHours: Number(raw.actualHours ?? 0), hourlyWage: Number(raw.hourlyWage ?? 0), actualAmount: Number(raw.actualAmount) };
-    let index = item.id ? current.findIndex(row => String(row.id) === String(item.id)) : current.findIndex(row => _salaryKey(row) === _salaryKey(item));
-    if (item.id && index < 0) {
-      const error = new Error(`EDIT_TARGET_NOT_FOUND: salaryEntries/${item.id}`); error.code = 'EDIT_TARGET_NOT_FOUND'; throw error;
-    }
-    const existing = index >= 0 ? current[index] : null;
-    const id = existing?.id || item.id || _newId('SALARY');
-    const next = { ...(existing || {}), ...item, id, createdAt: existing?.createdAt || now, updatedAt: now };
-    if (index >= 0) current[index] = next; else current.push(next);
-    touchedIds.push(id);
-  });
-  const duplicates = inspectSalaryEntryDuplicates(current);
-  if (duplicates.length) throw new Error(`薪資複合鍵重複：${duplicates.map(item => item.key).join(', ')}`);
-  const rows = _dataMode === 'gasSheet' ? await mutateCollection('salaryEntries', () => current, 'salary batch save') : await _setCollection('salaryEntries', current);
+  const build = current => {
+    const candidate = _clone(current), now = new Date().toISOString();
+    touchedIds.length = 0;
+    source.forEach(raw => {
+      const item = { ...raw, actualHours: Number(raw.actualHours ?? 0), hourlyWage: Number(raw.hourlyWage ?? 0), actualAmount: Number(raw.actualAmount) };
+      const index = item.id ? candidate.findIndex(row => String(row.id) === String(item.id)) : candidate.findIndex(row => _salaryKey(row) === _salaryKey(item));
+      if (item.id && index < 0) { const error = new Error(`EDIT_TARGET_NOT_FOUND: salaryEntries/${item.id}`); error.code = 'EDIT_TARGET_NOT_FOUND'; throw error; }
+      const existing = index >= 0 ? candidate[index] : null, id = existing?.id || item.id || _newId('SALARY');
+      const next = { ...(existing || {}), ...item, id, createdAt: existing?.createdAt || now, updatedAt: now };
+      if (index >= 0) candidate[index] = next; else candidate.push(next);
+      touchedIds.push(id);
+    });
+    const duplicates = inspectSalaryEntryDuplicates(candidate);
+    if (duplicates.length) throw new Error(`薪資複合鍵重複：${duplicates.map(item => item.key).join(', ')}`);
+    return candidate;
+  };
+  const rows = _dataMode === 'gasSheet' ? await mutateCollection('salaryEntries', build, 'salary batch save') : await _setCollection('salaryEntries', build(_clone(_getCollection('salaryEntries'))));
   const wanted = new Set(touchedIds);
   return rows.filter(row => wanted.has(row.id));
 }
