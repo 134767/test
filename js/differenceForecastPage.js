@@ -14,23 +14,35 @@ import {
   generateForecastEvaluationId
 } from './dataStore.js?v=1.6.0';
 import { formatNumber, showToast, escapeHtml } from './utils.js?v=1.6.0';
-import { validateRocAcademicYear } from './budgetGroupUtils.js?v=1.6.0';
+import {
+  validateRocAcademicYear,
+  getDistinctBudgetNames,
+  getBudgetsByName,
+  normalizeBudgetUnitCodes,
+  sumBudgetAmounts,
+  buildBudgetScope
+} from './budgetGroupUtils.js?v=1.6.0';
 
 // ===== 模組狀態 =====
 let containerEl = null;
+
+/** 差額與預估共用預算群組（未選時三欄皆安全空白） */
+let selectedBudgetName = '';
 
 let currentFilter = {
   mode: 'academicYear', // 'academicYear' | 'dateRange'
   academicYear: '',
   startYm: '',
-  endYm: ''
+  endYm: '',
+  budgetName: ''
 };
 
 let pastFilter = {
   mode: 'academicYear',
   academicYear: '',
   startYm: '',
-  endYm: ''
+  endYm: '',
+  budgetName: ''
 };
 
 let currentResult = null;
@@ -107,6 +119,34 @@ export function getBudgetTotalByAcademicYears(academicYears) {
   }, 0);
 }
 
+/** 依預算群組名稱 + 學年度清單加總（跨年各自使用該年 budgetAmount） */
+export function getGroupBudgetTotal(budgetName, academicYears) {
+  const name = String(budgetName || '').trim();
+  if (!name || !academicYears || academicYears.length === 0) return 0;
+  const named = getBudgetsByName(getBudgets(), name);
+  const yearSet = new Set(academicYears.map(String));
+  return sumBudgetAmounts(named.filter(b => yearSet.has(String(b.academicYear))));
+}
+
+/** 各學年度 unitCodes 對照表（跨年不得混用） */
+function buildYearUnitSetMap(budgetName) {
+  const map = new Map();
+  getBudgetsByName(getBudgets(), budgetName).forEach(b => {
+    map.set(String(b.academicYear), new Set(normalizeBudgetUnitCodes(b.unitCodes)));
+  });
+  return map;
+}
+
+function rowInGroupScope(row, yearUnitMap) {
+  const set = yearUnitMap.get(String(row.academicYear));
+  return Boolean(set && set.has(row.unitCode));
+}
+
+function entryInGroupScope(entry, yearUnitMap) {
+  const set = yearUnitMap.get(String(entry.academicYear));
+  return Boolean(set && set.has(entry.unitCode));
+}
+
 export function getRiskStatus(usedAmount, totalBudget) {
   const used = Number(usedAmount) || 0;
   const total = Number(totalBudget) || 0;
@@ -131,11 +171,14 @@ export function renderRiskBadge(status) {
   return `<span class="risk-badge ${info.cls}">${info.text}</span>`;
 }
 
-function getCalendarMonthlyHours() {
+function getCalendarMonthlyHours(budgetName = selectedBudgetName) {
   // 重用 getCalendarRows 取得行事曆資料，彙總每個月份的預估時數（有效作息時數加總）
+  // 若已選預算群組：依各學年度 unitCodes 範圍過濾（未來欄亦共用）
   const rows = getCalendarRows();
+  const yearUnitMap = budgetName ? buildYearUnitSetMap(budgetName) : null;
   const map = new Map();
   (rows || []).forEach(r => {
+    if (yearUnitMap && !rowInGroupScope(r, yearUnitMap)) return;
     const ym = getYmFromDate(r.date);
     if (ym) {
       const h = Number(r.hours) || 0;
@@ -348,26 +391,63 @@ function buildFutureMonthlyFromIntervals(budget, intervals) {
 // ===== 核心計算 =====
 
 function calculateActualPanelResult(config) {
+  const budgetName = String((config && config.budgetName) || selectedBudgetName || '').trim();
+  if (!budgetName) {
+    return createZeroResult();
+  }
+
+  // 以 buildBudgetScope 驗證群組與跨年 unitCodes；失敗則安全回零
+  const scopeInput = {
+    budgetName,
+    mode: config.mode === 'dateRange' ? 'dateRange' : 'academicYear',
+    academicYear: config.academicYear || '',
+    startYm: config.startYm || '',
+    endYm: config.endYm || ''
+  };
+  const scopeResult = buildBudgetScope(scopeInput, getBudgets());
+  if (!scopeResult.ok) {
+    const zero = createZeroResult();
+    zero.scopeError = scopeResult.error || '預算群組範圍無效';
+    zero.mode = config.mode || '';
+    zero.academicYear = config.academicYear || '';
+    zero.startYm = config.startYm || '';
+    zero.endYm = config.endYm || '';
+    zero.budgetName = budgetName;
+    return zero;
+  }
+
+  const scope = scopeResult.scope;
+  const yearUnitMap = new Map(
+    scope.budgets.map(b => [String(b.academicYear), new Set(normalizeBudgetUnitCodes(b.unitCodes))])
+  );
+
   const allRows = getCalendarRows();
   const allEntries = getSalaryEntries();
 
   let filteredRows = [];
   let filteredEntries = [];
-  let involvedAYs = [];
+  let involvedAYs = scope.years.map(String);
 
   if (config.mode === 'academicYear' && config.academicYear) {
-    filteredRows = filterCalendarRowsByAcademicYear(allRows, config.academicYear);
-    filteredEntries = filterSalaryEntriesByAcademicYear(allEntries, config.academicYear);
-    involvedAYs = [config.academicYear];
+    filteredRows = filterCalendarRowsByAcademicYear(allRows, config.academicYear)
+      .filter(r => rowInGroupScope(r, yearUnitMap));
+    filteredEntries = filterSalaryEntriesByAcademicYear(allEntries, config.academicYear)
+      .filter(e => entryInGroupScope(e, yearUnitMap));
+    involvedAYs = [String(config.academicYear)];
   } else if (config.mode === 'dateRange' && config.startYm && config.endYm) {
-    filteredRows = filterCalendarRowsByDateRange(allRows, config.startYm, config.endYm);
-    filteredEntries = filterSalaryEntriesByDateRange(allEntries, config.startYm, config.endYm);
-    involvedAYs = [...new Set(filteredRows.map(r => r.academicYear).filter(Boolean))];
+    filteredRows = filterCalendarRowsByDateRange(allRows, config.startYm, config.endYm)
+      .filter(r => rowInGroupScope(r, yearUnitMap));
+    filteredEntries = filterSalaryEntriesByDateRange(allEntries, config.startYm, config.endYm)
+      .filter(e => entryInGroupScope(e, yearUnitMap));
+    involvedAYs = [...new Set([
+      ...scope.years.map(String),
+      ...filteredRows.map(r => String(r.academicYear || '')).filter(Boolean)
+    ])];
   } else {
     return createZeroResult();
   }
 
-  const totalBudget = getBudgetTotalByAcademicYears(involvedAYs);
+  const totalBudget = getGroupBudgetTotal(budgetName, involvedAYs.length ? involvedAYs : scope.years);
   const estimatedAmount = filteredRows.reduce((s, r) => s + (Number(r.hours) || 0) * (Number(r.hourlyWage) || 0), 0);
   const actualAmount = filteredEntries.reduce((s, e) => s + (Number(e.actualAmount) || 0), 0);
 
@@ -407,6 +487,7 @@ function calculateActualPanelResult(config) {
     academicYear: config.academicYear || '',
     startYm: config.startYm || '',
     endYm: config.endYm || '',
+    budgetName,
     monthlyDetails
   };
 }
@@ -427,8 +508,64 @@ function createZeroResult() {
     academicYear: '',
     startYm: '',
     endYm: '',
+    budgetName: '',
+    scopeError: '',
     monthlyDetails: []
   };
+}
+
+function clearAllPanelResults(message) {
+  currentResult = createZeroResult();
+  pastResult = createZeroResult();
+  futureResult = calculateFuturePanelResult(currentResult);
+  renderCurrentPanel();
+  renderPastPanel();
+  renderFuturePanel();
+  renderComparisonTable();
+  if (message) showToast(message, 'info');
+}
+
+function populateBudgetGroupSelect() {
+  const sel = containerEl ? containerEl.querySelector('#forecast-budget-group') : null;
+  if (!sel) return;
+  const cur = selectedBudgetName;
+  sel.innerHTML = '<option value="">請選擇預算群組</option>';
+  getDistinctBudgetNames(getBudgets()).forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    sel.appendChild(opt);
+  });
+  if (cur && [...sel.options].some(o => o.value === cur)) {
+    sel.value = cur;
+  } else {
+    selectedBudgetName = '';
+    sel.value = '';
+  }
+}
+
+function handleBudgetGroupChange() {
+  const sel = containerEl.querySelector('#forecast-budget-group');
+  selectedBudgetName = sel ? String(sel.value || '').trim() : '';
+  currentFilter.budgetName = selectedBudgetName;
+  pastFilter.budgetName = selectedBudgetName;
+
+  // 切換群組必須清除先前結果，避免殘留跨群組數字
+  if (!selectedBudgetName) {
+    clearAllPanelResults('已清除查詢結果，請先選擇預算群組');
+    return;
+  }
+
+  clearAllPanelResults();
+  // 選好群組後重新套用目前／過去篩選（若已有合法條件）
+  if (currentFilter.mode === 'academicYear' && validateRocAcademicYear(currentFilter.academicYear)) {
+    currentResult = calculateActualPanelResult(currentFilter);
+  }
+  if (pastFilter.mode === 'academicYear' && validateRocAcademicYear(pastFilter.academicYear)) {
+    pastResult = calculateActualPanelResult(pastFilter);
+  }
+  futureResult = calculateFuturePanelResult(currentResult || createZeroResult());
+  renderAllPanels();
 }
 
 function calculateFuturePanelResult(currResult, fcfgOrEval) {
@@ -514,12 +651,13 @@ function updatePanelFilterUI(panel) {
 function setInitialFilters() {
   const latest = getLatestAcademicYear();
 
-  // 目前預設最新學年度
+  // 目前預設最新學年度；預算群組需使用者明確選擇
   currentFilter = {
     mode: 'academicYear',
     academicYear: latest,
     startYm: '',
-    endYm: ''
+    endYm: '',
+    budgetName: selectedBudgetName
   };
 
   // 過去預設也為最新（使用者可手動切換過去學年度比對）
@@ -527,7 +665,8 @@ function setInitialFilters() {
     mode: 'academicYear',
     academicYear: latest,
     startYm: '',
-    endYm: ''
+    endYm: '',
+    budgetName: selectedBudgetName
   };
 }
 
@@ -543,11 +682,13 @@ function initDefaultFutureConfigFromCurrent() {
 function bindEvents() {
   if (!containerEl) return;
 
+  const groupSel = containerEl.querySelector('#forecast-budget-group');
+  if (groupSel) {
+    groupSel.addEventListener('change', () => handleBudgetGroupChange());
+  }
+
   // ===== 目前欄 =====
   const currMode = containerEl.querySelector('#forecast-filter-mode');
-  const currYear = containerEl.querySelector('#forecast-filter-year');
-  const currStart = containerEl.querySelector('#forecast-filter-start');
-  const currEnd = containerEl.querySelector('#forecast-filter-end');
   const currQuery = containerEl.querySelector('#btn-query-current');
 
   if (currMode) {
@@ -561,9 +702,6 @@ function bindEvents() {
 
   // ===== 過去欄 =====
   const pastMode = containerEl.querySelector('#forecast-filter-mode-past');
-  const pastYear = containerEl.querySelector('#forecast-filter-year-past');
-  const pastStart = containerEl.querySelector('#forecast-filter-start-past');
-  const pastEnd = containerEl.querySelector('#forecast-filter-end-past');
   const pastQuery = containerEl.querySelector('#btn-query-past');
 
   if (pastMode) {
@@ -620,7 +758,13 @@ function applyFilterFromUI(panel) {
   const startInp = containerEl.querySelector(`#forecast-filter-start${prefix}`);
   const endInp = containerEl.querySelector(`#forecast-filter-end${prefix}`);
 
-  if (!modeSel) return;
+  if (!modeSel) return false;
+
+  if (!selectedBudgetName) {
+    showToast('請先選擇預算群組', 'error');
+    return false;
+  }
+  filterRef.budgetName = selectedBudgetName;
 
   filterRef.mode = modeSel.value;
 
@@ -649,6 +793,9 @@ function applyFilterFromUI(panel) {
 function handleQueryCurrent() {
   if (!applyFilterFromUI('current')) return;
   currentResult = calculateActualPanelResult(currentFilter);
+  if (currentResult && currentResult.scopeError) {
+    showToast(currentResult.scopeError, 'error');
+  }
 
   // 未來評估獨立，僅更新目前結果與比對表（modal 開啟時會用最新 currentResult 帶預設）
   renderCurrentPanel();
@@ -659,6 +806,9 @@ function handleQueryCurrent() {
 function handleQueryPast() {
   if (!applyFilterFromUI('past')) return;
   pastResult = calculateActualPanelResult(pastFilter);
+  if (pastResult && pastResult.scopeError) {
+    showToast(pastResult.scopeError, 'error');
+  }
   renderPastPanel();
   renderFuturePanel();
   renderComparisonTable();
@@ -669,11 +819,17 @@ function syncFutureInputs() {
 }
 
 function handleInitialCompute() {
-  // 自動計算目前與過去的初始結果
+  // 未選預算群組時不自動帶入全庫結果，保持安全空白
+  if (!selectedBudgetName) {
+    currentResult = createZeroResult();
+    pastResult = createZeroResult();
+    futureResult = calculateFuturePanelResult(currentResult);
+    return;
+  }
+  currentFilter.budgetName = selectedBudgetName;
+  pastFilter.budgetName = selectedBudgetName;
   currentResult = calculateActualPanelResult(currentFilter);
   pastResult = calculateActualPanelResult(pastFilter);
-
-  // 未來改由 currentEvaluation 驅動（初始尚未有評估）
   futureResult = calculateFuturePanelResult(currentResult);
 }
 
@@ -685,9 +841,18 @@ function renderCurrentPanel() {
   if (!el) return;
 
   const r = currentResult;
+  if (!selectedBudgetName) {
+    el.innerHTML = `<div style="margin-top:6px;font-size:13px;color:#888;">請先選擇預算群組後再查詢。</div>`;
+    return;
+  }
+  if (r.scopeError) {
+    el.innerHTML = `<div style="margin-top:6px;font-size:13px;color:#c00;">${escapeHtml(r.scopeError)}</div>`;
+    return;
+  }
+  const groupLabel = r.budgetName || selectedBudgetName;
   const title = r.mode === 'academicYear' && r.academicYear
-    ? `學年度：${r.academicYear}`
-    : (r.startYm && r.endYm ? `區間：${r.startYm} ~ ${r.endYm}` : '未設定範圍');
+    ? `群組：${escapeHtml(groupLabel)}　學年度：${r.academicYear}`
+    : (r.startYm && r.endYm ? `群組：${escapeHtml(groupLabel)}　區間：${r.startYm} ~ ${r.endYm}` : `群組：${escapeHtml(groupLabel)}　未設定範圍`);
 
   el.innerHTML = `
     <div style="margin-top:6px;font-size:13px;color:#666;">${title}</div>
@@ -702,9 +867,18 @@ function renderPastPanel() {
   if (!el) return;
 
   const r = pastResult;
+  if (!selectedBudgetName) {
+    el.innerHTML = `<div style="margin-top:6px;font-size:13px;color:#888;">請先選擇預算群組後再查詢。</div>`;
+    return;
+  }
+  if (r.scopeError) {
+    el.innerHTML = `<div style="margin-top:6px;font-size:13px;color:#c00;">${escapeHtml(r.scopeError)}</div>`;
+    return;
+  }
+  const groupLabel = r.budgetName || selectedBudgetName;
   const title = r.mode === 'academicYear' && r.academicYear
-    ? `學年度：${r.academicYear}`
-    : (r.startYm && r.endYm ? `區間：${r.startYm} ~ ${r.endYm}` : '未設定範圍');
+    ? `群組：${escapeHtml(groupLabel)}　學年度：${r.academicYear}`
+    : (r.startYm && r.endYm ? `群組：${escapeHtml(groupLabel)}　區間：${r.startYm} ~ ${r.endYm}` : `群組：${escapeHtml(groupLabel)}　未設定範圍`);
 
   el.innerHTML = `
     <div style="margin-top:6px;font-size:13px;color:#666;">${title}</div>
@@ -1255,8 +1429,19 @@ export function initDifferenceForecastPage(container) {
     </div>
 
     <p style="margin:4px 0 12px;font-size:15px;color:#555;">
-      響應式版面。查詢結果僅供分析，不會寫回任何資料。
+      響應式版面。查詢結果僅供分析，不會寫回任何資料。請先選擇預算群組，三欄皆依該群組 unitCodes 範圍計算。
     </p>
+
+    <div class="query-panel" style="margin-bottom:12px;">
+      <div class="query-row">
+        <div class="query-field">
+          <label>預算群組</label>
+          <select id="forecast-budget-group">
+            <option value="">請選擇預算群組</option>
+          </select>
+        </div>
+      </div>
+    </div>
 
     <!-- 總比對表（統一卡片容器） -->
     <div class="comparison-card" style="margin-bottom:16px;">
@@ -1406,7 +1591,9 @@ export function initDifferenceForecastPage(container) {
   `;
 
   // 初始狀態
+  selectedBudgetName = '';
   setInitialFilters();
+  populateBudgetGroupSelect();
   syncFilterUI();
 
   // 初始計算
@@ -1419,7 +1606,13 @@ export function initDifferenceForecastPage(container) {
   const refreshBtn = containerEl.querySelector('#btn-refresh-forecast');
   if (refreshBtn) {
     refreshBtn.addEventListener('click', () => {
-      // 重新抓最新資料並重算
+      populateBudgetGroupSelect();
+      if (!selectedBudgetName) {
+        clearAllPanelResults('請先選擇預算群組');
+        return;
+      }
+      currentFilter.budgetName = selectedBudgetName;
+      pastFilter.budgetName = selectedBudgetName;
       currentResult = calculateActualPanelResult(currentFilter);
       pastResult = calculateActualPanelResult(pastFilter);
       renderAllPanels();

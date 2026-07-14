@@ -5,10 +5,12 @@ import {
   getScheduleTypes,
   getUnits,
   getHourSettings,
-  saveHourSetting
+  saveHourSetting,
+  getBudgets
 } from './dataStore.js?v=1.6.0';
 import { renderHourTable } from './hourSettingPage.js?v=1.6.0';
 import { showToast, arrayToWeekdays } from './utils.js?v=1.6.0';
+import { findBudgetByOptionValue } from './hourBudgetScopeUtils.js?v=1.6.0';
 
 let currentEditingId = null;
 let selectedScheduleTypes = new Set();
@@ -98,6 +100,7 @@ function enhanceHourForm(root) {
 
 function arrangeHourFormRows(root, modalBody) {
   const academicGroup = closestGroup(root, '#hour-academicYear');
+  const budgetGroup = closestGroup(root, '#hour-budget-group');
   const scheduleGroup = closestGroup(root, '#hour-scheduleType');
   const unitGroup = closestGroup(root, '#hour-unit');
   const weekdayGroup = closestGroup(root, '#hour-weekdays');
@@ -107,8 +110,10 @@ function arrangeHourFormRows(root, modalBody) {
   const wageGroup = closestGroup(root, '#hour-wage');
   const noteGroup = closestGroup(root, '#hour-note');
 
+  // 預算單位（budgetName）必須保留在 modal 中，否則 1.6.0 群組範圍會失效
   const orderedGroups = [
     academicGroup,
+    budgetGroup,
     scheduleGroup,
     unitGroup,
     weekdayGroup,
@@ -122,6 +127,7 @@ function arrangeHourFormRows(root, modalBody) {
 
   modalBody.replaceChildren(
     makeHourFormRow([academicGroup], true),
+    makeHourFormRow([budgetGroup], true),
     makeHourFormRow([scheduleGroup], true),
     makeHourFormRow([unitGroup], true),
     makeHourFormRow([weekdayGroup], true),
@@ -263,12 +269,21 @@ function handlePatchedHourSave(root) {
   const selectedDays = Array.from(root.querySelectorAll('#hour-weekdays .weekday-btn.active'))
     .map(button => button.dataset.day);
 
-  if (!academicYear || scheduleTypes.length === 0 || unitCodes.length === 0) {
-    showToast('學年度、作息類型、單位均為必填', 'error');
+  const budgetVal = valueOf(root, '#hour-budget-group');
+  if (!academicYear) {
+    showToast('請選擇學年度', 'error');
+    return;
+  }
+  if (!budgetVal) {
+    showToast('請選擇單位', 'error');
+    return;
+  }
+  if (scheduleTypes.length === 0 || unitCodes.length === 0) {
+    showToast('學年度、作息類型、實際單位均為必填', 'error');
     return;
   }
   if (currentEditingId && (scheduleTypes.length !== 1 || unitCodes.length !== 1)) {
-    showToast('編輯既有時數設定時，作息類型與單位都只能選擇一個', 'error');
+    showToast('編輯既有時數設定時，作息類型與實際單位都只能選擇一個', 'error');
     return;
   }
   if (selectedDays.length === 0) {
@@ -288,11 +303,23 @@ function handlePatchedHourSave(root) {
     return;
   }
 
+  const selectedBudget = findBudgetByOptionValue(getBudgets(), budgetVal, academicYear);
+  if (!selectedBudget || String(selectedBudget.academicYear) !== String(academicYear)) {
+    showToast('選擇的單位不屬於目前學年度', 'error');
+    return;
+  }
+  const allowed = new Set(selectedBudget.unitCodes || []);
+  const outOfScope = unitCodes.find(code => !allowed.has(code));
+  if (outOfScope) {
+    showToast('實際單位不屬於所選預算單位', 'error');
+    return;
+  }
+
   const weekdays = arrayToWeekdays(selectedDays);
   const unitMap = new Map(getUnits().map(unit => [unit.unitCode, unit]));
   const invalidUnitCode = unitCodes.find(code => !unitMap.has(code));
   if (invalidUnitCode) {
-    showToast('單位必須來自單位設定', 'error');
+    showToast('實際單位已不存在於單位設定', 'error');
     return;
   }
 

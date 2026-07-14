@@ -35,6 +35,14 @@ import {
   inferAcademicYearFromDate,
   renderPagination
 } from './utils.js?v=1.6.0';
+import {
+  getDistinctValidBudgetNames,
+  getYearsForBudgetName,
+  resolveBudgetForNameAndYear,
+  filterCalendarRowsByBudgetScope,
+  getAllowedUnitCodesForBudgetNameYear,
+  getDuplicateBudgetNameYears
+} from './hourBudgetScopeUtils.js?v=1.6.0';
 
 let containerEl = null;
 
@@ -46,10 +54,13 @@ let selectedIntervalScheduleTypes = new Set();
 let selectedIntervalUnitCodes = new Set();
 
 let calendarFilter = {
+  selectedBudgetName: '',
   mode: 'academicYear',
   academicYear: '',
   startDate: '',
-  endDate: ''
+  endDate: '',
+  queried: false,
+  warnings: []
 };
 
 let holidayCurrentPage = 1;
@@ -66,45 +77,63 @@ export function initCalendarPage(container) {
         <div class="toolbar-row">
           <button id="btn-holiday-setting" class="btn-primary">國定與校定假日設定</button>
           <button id="btn-add-period" class="btn-primary">新增週期</button>
-          <button id="btn-add-interval" class="btn-primary">新增作息區間</button>
+          <button id="btn-add-interval" class="btn-primary" style="display:none;" disabled>新增作息區間</button>
         </div>
         <div class="toolbar-row">
           <button id="btn-del-period" class="btn-danger">刪除週期</button>
-          <button id="btn-del-interval" class="btn-danger">刪除作息區間</button>
+          <button id="btn-del-interval" class="btn-danger" style="display:none;" disabled>刪除作息區間</button>
         </div>
       </div>
     </div>
 
     <!-- Calendar Filter -->
     <div class="calendar-filter">
-      <div class="filter-controls">
-        <label>查詢模式</label>
-        <select id="cal-filter-mode">
-          <option value="academicYear">依學年度</option>
-          <option value="dateRange">依日期區間</option>
-        </select>
-
-        <select id="cal-filter-year" class="filter-year"></select>
-
-        <div id="cal-filter-date-range" class="filter-date-range" style="display:none;">
-          <div class="date-input-wrap">
-            <input type="text" id="cal-filter-start" class="date-text-input" placeholder="yyyy/mm/dd">
-            <button type="button" id="cal-filter-start-btn" class="date-picker-btn" title="選擇日期">📅</button>
-            <input type="date" id="cal-filter-start-native" class="date-native-input">
-          </div>
-          <span class="date-range-sep">~</span>
-          <div class="date-input-wrap">
-            <input type="text" id="cal-filter-end" class="date-text-input" placeholder="yyyy/mm/dd">
-            <button type="button" id="cal-filter-end-btn" class="date-picker-btn" title="選擇日期">📅</button>
-            <input type="date" id="cal-filter-end-native" class="date-native-input">
-          </div>
+      <div class="filter-controls calendar-filter-controls">
+        <div class="query-field" id="cal-budget-group-field">
+          <label>預算單位</label>
+          <select id="cal-filter-budget-group">
+            <option value="">請選擇預算單位</option>
+          </select>
         </div>
 
-        <button id="cal-filter-query" class="btn-primary">查詢</button>
+        <div id="cal-secondary-filters" class="cal-secondary-filters" style="display:none;">
+          <div class="query-field">
+            <label>查詢模式</label>
+            <select id="cal-filter-mode">
+              <option value="academicYear">依學年度</option>
+              <option value="dateRange">依日期區間</option>
+            </select>
+          </div>
+
+          <div class="query-field" id="cal-year-field">
+            <label>學年度</label>
+            <select id="cal-filter-year" class="filter-year">
+              <option value="">請選擇學年度</option>
+            </select>
+          </div>
+
+          <div id="cal-filter-date-range" class="filter-date-range" style="display:none;">
+            <div class="date-input-wrap">
+              <input type="text" id="cal-filter-start" class="date-text-input" placeholder="yyyy/mm/dd">
+              <button type="button" id="cal-filter-start-btn" class="date-picker-btn" title="選擇日期">📅</button>
+              <input type="date" id="cal-filter-start-native" class="date-native-input">
+            </div>
+            <span class="date-range-sep">~</span>
+            <div class="date-input-wrap">
+              <input type="text" id="cal-filter-end" class="date-text-input" placeholder="yyyy/mm/dd">
+              <button type="button" id="cal-filter-end-btn" class="date-picker-btn" title="選擇日期">📅</button>
+              <input type="date" id="cal-filter-end-native" class="date-native-input">
+            </div>
+          </div>
+
+          <button id="cal-filter-query" class="btn-primary">查詢</button>
+        </div>
       </div>
+      <div id="cal-query-summary" class="cal-query-summary" style="display:none;"></div>
+      <div id="cal-query-warnings" class="cal-query-warnings" style="display:none;"></div>
     </div>
 
-    <div class="table-wrapper">
+    <div class="table-wrapper" id="calendar-table-wrap" style="display:none;" data-cal-table-hidden="true">
       <table class="data-table calendar-table" id="calendar-table">
         <thead>
           <tr>
@@ -116,6 +145,7 @@ export function initCalendarPage(container) {
             <th>開館時間</th>
             <th style="text-align:right">時數</th>
             <th style="text-align:right">時薪</th>
+            <th>備註</th>
           </tr>
         </thead>
         <tbody id="calendar-tbody"></tbody>
@@ -145,7 +175,7 @@ export function initCalendarPage(container) {
               <input type="date" id="period-end-native" class="date-native-input">
             </div>
           </div>
-          <div class="help-text" id="period-help">新增會依日期區間建立每日紀錄，刪除會一併清除該區間所有作息。</div>
+          <div class="help-text" id="period-help">新增會依日期區間建立每日紀錄。刪除週期為全域操作，將清除該區間內所有預算群組的作息資料。</div>
         </div>
         <div class="modal-footer">
           <button id="period-confirm-btn" class="btn-primary">儲存</button>
@@ -264,7 +294,9 @@ export function initCalendarPage(container) {
   bindCalendarEvents();
   setupDatePickers(containerEl);
   initDefaultCalendarFilter();
-  renderCalendarTable();
+  // 初始不自動查詢、不載入全體資料
+  updateCalendarQueryChrome();
+  clearCalendarResultDom();
 }
 
 function setupDatePickers(root) {
@@ -349,27 +381,72 @@ function bindCalendarEvents() {
   setupCalendarFilterEvents();
 }
 
-// ===== CALENDAR FILTER HELPERS (minimal) =====
-function getLatestAcademicYear() {
-  // 優先從 calendarRows 找最大 academicYear
-  const rows = getCalendarRows();
-  if (rows.length > 0) {
-    const years = [...new Set(rows.map(r => r.academicYear).filter(Boolean))];
-    if (years.length > 0) {
-      years.sort((a, b) => b.localeCompare(a, 'zh-Hant'));
-      return years[0];
-    }
+// ===== CALENDAR FILTER HELPERS =====
+function clearCalendarResultDom() {
+  const tbody = containerEl ? containerEl.querySelector('#calendar-tbody') : null;
+  if (tbody) tbody.innerHTML = '';
+  const wrap = containerEl ? containerEl.querySelector('#calendar-table-wrap') : null;
+  if (wrap) {
+    wrap.style.display = 'none';
+    wrap.setAttribute('data-cal-table-hidden', 'true');
   }
-  // 再從 budgets
-  try {
-    const budgets = getBudgets();
-    const years = [...new Set(budgets.map(b => b.academicYear).filter(Boolean))];
-    if (years.length > 0) {
-      years.sort((a, b) => b.localeCompare(a, 'zh-Hant'));
-      return years[0];
-    }
-  } catch (e) {}
-  return '';
+  const sum = containerEl ? containerEl.querySelector('#cal-query-summary') : null;
+  if (sum) {
+    sum.style.display = 'none';
+    sum.textContent = '';
+  }
+  const warn = containerEl ? containerEl.querySelector('#cal-query-warnings') : null;
+  if (warn) {
+    warn.style.display = 'none';
+    warn.textContent = '';
+  }
+}
+
+function invalidateCalendarQuery() {
+  calendarFilter.queried = false;
+  calendarFilter.warnings = [];
+  clearCalendarResultDom();
+  updateCalendarQueryChrome();
+}
+
+function updateCalendarQueryChrome() {
+  if (!containerEl) return;
+  const hasBudget = Boolean(calendarFilter.selectedBudgetName);
+  const secondary = containerEl.querySelector('#cal-secondary-filters');
+  if (secondary) secondary.style.display = hasBudget ? '' : 'none';
+
+  const addInt = containerEl.querySelector('#btn-add-interval');
+  const delInt = containerEl.querySelector('#btn-del-interval');
+  const showIntervalOps = hasBudget && calendarFilter.queried;
+  [addInt, delInt].forEach(btn => {
+    if (!btn) return;
+    btn.style.display = showIntervalOps ? '' : 'none';
+    btn.disabled = !showIntervalOps;
+  });
+}
+
+function populateCalendarBudgetGroupSelect(selected = '') {
+  const sel = containerEl.querySelector('#cal-filter-budget-group');
+  if (!sel) return;
+  const names = getDistinctValidBudgetNames(getBudgets());
+  const dups = names.filter(n => getDuplicateBudgetNameYears(getBudgets(), n).length > 0);
+  if (dups.length) {
+    console.warn('[行事曆] 同年度同名預算單位異常：', dups);
+  }
+
+  sel.innerHTML = '';
+  const ph = document.createElement('option');
+  ph.value = '';
+  ph.textContent = '請選擇預算單位';
+  sel.appendChild(ph);
+  names.forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    sel.appendChild(opt);
+  });
+  if (selected && names.includes(selected)) sel.value = selected;
+  else sel.value = '';
 }
 
 function populateCalendarYearSelect(selected = '') {
@@ -377,84 +454,100 @@ function populateCalendarYearSelect(selected = '') {
   if (!sel) return;
   sel.innerHTML = '';
 
-  let years = [];
-  try {
-    const budgets = getBudgets();
-    years = [...new Set(budgets.map(b => b.academicYear).filter(Boolean))];
-  } catch (e) {}
-  // 也包含 rows 裡的
-  const rows = getCalendarRows();
-  rows.forEach(r => {
-    if (r.academicYear && !years.includes(r.academicYear)) years.push(r.academicYear);
-  });
-  years.sort((a, b) => b.localeCompare(a, 'zh-Hant'));
+  const ph = document.createElement('option');
+  ph.value = '';
+  ph.textContent = '請選擇學年度';
+  sel.appendChild(ph);
 
+  const years = getYearsForBudgetName(getBudgets(), calendarFilter.selectedBudgetName);
   years.forEach(y => {
     const opt = document.createElement('option');
     opt.value = y;
     opt.textContent = y;
-    if (y === selected) opt.selected = true;
     sel.appendChild(opt);
   });
 
-  if (selected) {
-    sel.value = selected;
-  } else if (years.length > 0) {
-    sel.value = years[0];
-  }
+  // 不自動選最新；僅在 selected 有效時套用
+  if (selected && years.includes(selected)) sel.value = selected;
+  else sel.value = '';
 }
 
 function initDefaultCalendarFilter() {
-  calendarFilter.mode = 'academicYear';
-  calendarFilter.academicYear = getLatestAcademicYear();
-  calendarFilter.startDate = '';
-  calendarFilter.endDate = '';
+  calendarFilter = {
+    selectedBudgetName: '',
+    mode: 'academicYear',
+    academicYear: '',
+    startDate: '',
+    endDate: '',
+    queried: false,
+    warnings: []
+  };
 
-  // UI init
+  populateCalendarBudgetGroupSelect('');
   const modeSel = containerEl.querySelector('#cal-filter-mode');
-  const yearSel = containerEl.querySelector('#cal-filter-year');
-  const dateRangeDiv = containerEl.querySelector('#cal-filter-date-range');
-  if (modeSel) modeSel.value = calendarFilter.mode;
-  populateCalendarYearSelect(calendarFilter.academicYear);
-  if (dateRangeDiv) dateRangeDiv.style.display = 'none';
-  if (yearSel) yearSel.style.display = '';
+  if (modeSel) modeSel.value = 'academicYear';
+  populateCalendarYearSelect('');
   updateFilterUI();
+  updateCalendarQueryChrome();
 }
 
 function updateFilterUI() {
   const modeSel = containerEl.querySelector('#cal-filter-mode');
-  const yearSel = containerEl.querySelector('#cal-filter-year');
+  const yearField = containerEl.querySelector('#cal-year-field');
   const dateRangeDiv = containerEl.querySelector('#cal-filter-date-range');
-  if (!modeSel || !yearSel || !dateRangeDiv) return;
+  if (!modeSel || !yearField || !dateRangeDiv) return;
 
   if (modeSel.value === 'academicYear') {
-    yearSel.style.display = '';
+    yearField.style.display = '';
     dateRangeDiv.style.display = 'none';
   } else {
-    yearSel.style.display = 'none';
+    yearField.style.display = 'none';
     dateRangeDiv.style.display = 'flex';
   }
 }
 
 function setupCalendarFilterEvents() {
+  const budgetSel = containerEl.querySelector('#cal-filter-budget-group');
   const modeSel = containerEl.querySelector('#cal-filter-mode');
   const yearSel = containerEl.querySelector('#cal-filter-year');
   const queryBtn = containerEl.querySelector('#cal-filter-query');
+  const startEl = containerEl.querySelector('#cal-filter-start');
+  const endEl = containerEl.querySelector('#cal-filter-end');
 
-  if (modeSel) {
-    modeSel.addEventListener('change', () => {
-      if (modeSel.value === 'academicYear') {
-        populateCalendarYearSelect(calendarFilter.academicYear || getLatestAcademicYear());
-      }
+  if (budgetSel) {
+    budgetSel.addEventListener('change', () => {
+      calendarFilter.selectedBudgetName = budgetSel.value || '';
+      calendarFilter.academicYear = '';
+      calendarFilter.startDate = '';
+      calendarFilter.endDate = '';
+      if (startEl) startEl.value = '';
+      if (endEl) endEl.value = '';
+      populateCalendarYearSelect('');
+      invalidateCalendarQuery();
       updateFilterUI();
     });
   }
+
+  if (modeSel) {
+    modeSel.addEventListener('change', () => {
+      calendarFilter.mode = modeSel.value;
+      invalidateCalendarQuery();
+      updateFilterUI();
+    });
+  }
+
+  if (yearSel) {
+    yearSel.addEventListener('change', () => {
+      invalidateCalendarQuery();
+    });
+  }
+  if (startEl) startEl.addEventListener('change', () => invalidateCalendarQuery());
+  if (endEl) endEl.addEventListener('change', () => invalidateCalendarQuery());
 
   if (queryBtn) {
     queryBtn.addEventListener('click', handleCalendarFilterQuery);
   }
 
-  // initial UI
   updateFilterUI();
 }
 
@@ -463,10 +556,18 @@ function handleCalendarFilterQuery() {
   const yearSel = containerEl.querySelector('#cal-filter-year');
   const startEl = containerEl.querySelector('#cal-filter-start');
   const endEl = containerEl.querySelector('#cal-filter-end');
+  const budgetName = calendarFilter.selectedBudgetName ||
+    (containerEl.querySelector('#cal-filter-budget-group')?.value || '');
 
+  if (!budgetName) {
+    showToast('請先選擇預算單位', 'error');
+    return;
+  }
   if (!modeSel) return;
 
+  calendarFilter.selectedBudgetName = budgetName;
   calendarFilter.mode = modeSel.value;
+  calendarFilter.warnings = [];
 
   if (calendarFilter.mode === 'academicYear') {
     calendarFilter.academicYear = yearSel ? yearSel.value : '';
@@ -474,6 +575,20 @@ function handleCalendarFilterQuery() {
     calendarFilter.endDate = '';
     if (!calendarFilter.academicYear) {
       showToast('請選擇學年度', 'error');
+      calendarFilter.queried = false;
+      updateCalendarQueryChrome();
+      return;
+    }
+    const resolved = resolveBudgetForNameAndYear(getBudgets(), budgetName, calendarFilter.academicYear);
+    if (!resolved.ok) {
+      if (resolved.error === 'duplicate_year_group') {
+        showToast('此學年度存在重複預算單位資料，請先修正預算設定', 'error');
+      } else {
+        showToast('所選學年度沒有此預算單位', 'error');
+      }
+      calendarFilter.queried = false;
+      clearCalendarResultDom();
+      updateCalendarQueryChrome();
       return;
     }
   } else {
@@ -481,8 +596,12 @@ function handleCalendarFilterQuery() {
     const eRaw = endEl ? endEl.value.trim() : '';
     const start = normalizeDateInput(sRaw);
     const end = normalizeDateInput(eRaw);
-    if (!start || !end || start > end) {
-      showToast('請輸入合法的日期區間（起始 ≤ 結束）', 'error');
+    if (!start || !end) {
+      showToast('請輸入有效的日期區間', 'error');
+      return;
+    }
+    if (start > end) {
+      showToast('起始日期不可大於結束日期', 'error');
       return;
     }
     calendarFilter.startDate = start;
@@ -490,29 +609,63 @@ function handleCalendarFilterQuery() {
     calendarFilter.academicYear = '';
   }
 
+  calendarFilter.queried = true;
+  updateCalendarQueryChrome();
   renderCalendarTable();
 }
 
 function getFilteredData() {
+  if (!calendarFilter.queried || !calendarFilter.selectedBudgetName) {
+    return { periods: [], rows: [], holidays: [], warnings: [] };
+  }
+
   let periods = getCalendarPeriods();
-  let rows = getCalendarRows();
   let holidays = getCalendarHolidays();
-
   const f = calendarFilter;
+  const budgets = getBudgets();
 
+  let scopeOpts = {};
   if (f.mode === 'academicYear' && f.academicYear) {
-    rows = rows.filter(r => r.academicYear === f.academicYear);
     periods = periods.filter(p => inferAcademicYearFromDate(p.date) === f.academicYear);
     holidays = holidays.filter(h => inferAcademicYearFromDate(h.date) === f.academicYear);
+    scopeOpts = { academicYear: f.academicYear };
   } else if (f.mode === 'dateRange' && f.startDate && f.endDate) {
     const s = f.startDate;
     const e = f.endDate;
-    rows = rows.filter(r => r.date >= s && r.date <= e);
     periods = periods.filter(p => p.date >= s && p.date <= e);
     holidays = holidays.filter(h => h.date >= s && h.date <= e);
+    scopeOpts = { startDate: s, endDate: e };
+  } else {
+    return { periods: [], rows: [], holidays: [], warnings: [] };
   }
 
-  return { periods, rows, holidays };
+  const scoped = filterCalendarRowsByBudgetScope(getCalendarRows(), budgets, f.selectedBudgetName, scopeOpts);
+  return { periods, rows: scoped.rows, holidays, warnings: scoped.warnings || [] };
+}
+
+function renderCalendarSummary(warnings = []) {
+  const sum = containerEl.querySelector('#cal-query-summary');
+  const warnEl = containerEl.querySelector('#cal-query-warnings');
+  if (sum) {
+    const name = calendarFilter.selectedBudgetName || '';
+    let text = '';
+    if (calendarFilter.mode === 'academicYear') {
+      text = `預算單位：${name}｜學年度：${calendarFilter.academicYear || ''}`;
+    } else {
+      text = `預算單位：${name}｜日期：${formatDateForDisplay(calendarFilter.startDate)}～${formatDateForDisplay(calendarFilter.endDate)}`;
+    }
+    sum.style.display = 'block';
+    sum.textContent = text;
+  }
+  if (warnEl) {
+    if (warnings && warnings.length) {
+      warnEl.style.display = 'block';
+      warnEl.textContent = warnings.join('；');
+    } else {
+      warnEl.style.display = 'none';
+      warnEl.textContent = '';
+    }
+  }
 }
 
 // ===== RENDER CALENDAR TABLE (with grouping) =====
@@ -521,12 +674,21 @@ export function renderCalendarTable() {
   const tbody = containerEl.querySelector('#calendar-tbody');
   if (!tbody) return;
 
-  // keep year select up-to-date with any new data (new years etc)
-  if (calendarFilter.mode === 'academicYear') {
-    populateCalendarYearSelect(calendarFilter.academicYear);
+  if (!calendarFilter.queried) {
+    clearCalendarResultDom();
+    updateCalendarQueryChrome();
+    return;
   }
 
-  const { periods, rows, holidays } = getFilteredData();
+  const wrap = containerEl.querySelector('#calendar-table-wrap');
+  if (wrap) {
+    wrap.style.display = '';
+    wrap.setAttribute('data-cal-table-hidden', 'false');
+  }
+
+  const { periods, rows, holidays, warnings } = getFilteredData();
+  calendarFilter.warnings = warnings || [];
+  renderCalendarSummary(calendarFilter.warnings);
 
   // unit color map (from units settings, not from rows)
   const unitsForColor = getUnits();
@@ -552,10 +714,15 @@ export function renderCalendarTable() {
       ? `尚無 ${calendarFilter.academicYear} 學年度的行事曆資料。`
       : '尚無符合查詢條件的行事曆資料。';
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td colspan="8" style="text-align:center;color:#888">${msg}</td>`;
+    tr.innerHTML = `<td colspan="9" style="text-align:center;color:#888">${msg}</td>`;
     tbody.appendChild(tr);
     return;
   }
+
+  // 備註來源：以 sourceHourSettingId 對應時數設定 note（不改 calendar schema）
+  const hourNoteById = new Map(
+    (getHourSettings() || []).map(h => [String(h.id || ''), String(h.note || '')])
+  );
 
   // 依日期分組
   const rowMap = new Map();
@@ -592,7 +759,7 @@ export function renderCalendarTable() {
         <td>${formatDateForDisplay(date)}</td>
         <td></td>
         <td>${escapeHtml(period ? period.weekday : getWeekdayFromDate(date))}</td>
-        <td colspan="5" style="color:#c00;font-weight:500;">${escapeHtml(holiday.name)}　假日，不計算上班時間</td>
+        <td colspan="6" style="color:#c00;font-weight:500;">${escapeHtml(holiday.name)}　假日，不計算上班時間</td>
       `;
       tbody.appendChild(tr);
       return;
@@ -616,7 +783,7 @@ export function renderCalendarTable() {
         <td>${formatDateForDisplay(date)}</td>
         <td></td>
         <td>${escapeHtml(period ? period.weekday : getWeekdayFromDate(date))}</td>
-        <td colspan="5" style="color:#888">尚未套用作息區間</td>
+        <td colspan="6" style="color:#888">尚未套用作息區間</td>
       `;
       tbody.appendChild(tr);
       return;
@@ -639,6 +806,10 @@ export function renderCalendarTable() {
       const scheduleDisp = isFirstOfSchedule ? escapeHtml(row.scheduleType) : '';
       const unitDisp = escapeHtml(row.unitName);
       const timeDisp = `${row.startTime}~${row.endTime}`;
+      const sourceId = String(row.sourceHourSettingId || '');
+      const noteDisp = sourceId && hourNoteById.has(sourceId)
+        ? escapeHtml(hourNoteById.get(sourceId) || '')
+        : '';
 
       const colorKey = unitColorMap.get(row.unitCode) || 'default';
       const color = getColorHex(colorKey);
@@ -652,6 +823,7 @@ export function renderCalendarTable() {
         <td>${timeDisp}</td>
         <td style="text-align:right">${row.hours}</td>
         <td style="text-align:right">${row.hourlyWage}</td>
+        <td>${noteDisp}</td>
       `;
       tbody.appendChild(tr);
 
@@ -728,6 +900,11 @@ function handlePeriodConfirm() {
 
 // ===== INTERVAL MODAL =====
 function showIntervalModal(mode) {
+  if (!calendarFilter.queried || !calendarFilter.selectedBudgetName) {
+    showToast('請先選擇預算單位並完成查詢', 'error');
+    return;
+  }
+
   intervalModalMode = mode;
   const modal = containerEl.querySelector('#interval-modal');
   const title = containerEl.querySelector('#interval-modal-title');
@@ -759,10 +936,28 @@ function populateAcademicYearsForInterval() {
   const sel = containerEl.querySelector('#int-academicYear');
   sel.innerHTML = '<option value="">請選擇</option>';
 
-  // 學年度來源：時數設定
-  const hours = getHourSettings();
-  const years = [...new Set(hours.map(h => h.academicYear))];
-  years.sort((a, b) => b.localeCompare(a));
+  // 只列出所選 budgetName 存在的有效年度，且與目前查詢條件有交集
+  const name = calendarFilter.selectedBudgetName;
+  let years = getYearsForBudgetName(getBudgets(), name);
+
+  if (calendarFilter.mode === 'academicYear' && calendarFilter.academicYear) {
+    years = years.filter(y => y === calendarFilter.academicYear);
+  } else if (calendarFilter.mode === 'dateRange' && calendarFilter.startDate && calendarFilter.endDate) {
+    // 依區間涉及學年度過濾
+    const involved = new Set();
+    let d = calendarFilter.startDate;
+    let guard = 0;
+    while (d && d <= calendarFilter.endDate && guard < 800) {
+      const ay = inferAcademicYearFromDate(d);
+      if (ay) involved.add(ay);
+      // next day
+      const dt = new Date(d + 'T00:00:00');
+      dt.setDate(dt.getDate() + 1);
+      d = dt.toISOString().slice(0, 10);
+      guard += 1;
+    }
+    years = years.filter(y => involved.has(y));
+  }
 
   years.forEach(y => {
     const opt = document.createElement('option');
@@ -770,6 +965,13 @@ function populateAcademicYearsForInterval() {
     opt.textContent = y;
     sel.appendChild(opt);
   });
+
+  // 預設帶入目前查詢學年度（若有效）
+  if (calendarFilter.mode === 'academicYear' && years.includes(calendarFilter.academicYear)) {
+    sel.value = calendarFilter.academicYear;
+  } else if (years.length === 1) {
+    sel.value = years[0];
+  }
 }
 
 function populateScheduleTypeButtonsForInterval(reset = false) {
@@ -837,49 +1039,66 @@ function populateUnitButtonsForInterval(reset = false) {
     return;
   }
 
+  // 預算群組 unitCodes 限制（各年度自己的 scope）
+  const allowed = getAllowedUnitCodesForBudgetNameYear(
+    getBudgets(),
+    calendarFilter.selectedBudgetName,
+    ay
+  );
+  if (!allowed.ok) {
+    selectedIntervalUnitCodes.clear();
+    wrap.innerHTML = '<span style="color:#c00;font-size:14px;">此學年度沒有有效預算單位或資料異常</span>';
+    return;
+  }
+  const allowedSet = new Set(allowed.unitCodes);
+
   const map = new Map();
   selectedTypes.forEach(type => {
     getUnitsByYearAndType(ay, type).forEach(u => {
+      if (!allowedSet.has(u.unitCode)) return;
       if (!map.has(u.unitCode)) {
         map.set(u.unitCode, u);
       }
     });
   });
 
+  // 也允許預算群組內、且存在於 master、並有 hour setting 的代碼順序依 budget.unitCodes
   const master = getUnits();
-  const orderMap = new Map(master.map((u, i) => [u.unitCode, i]));
-  const units = Array.from(map.values());
-  units.sort((a, b) => {
-    const oa = orderMap.has(a.unitCode) ? orderMap.get(a.unitCode) : 999999;
-    const ob = orderMap.has(b.unitCode) ? orderMap.get(b.unitCode) : 999999;
-    if (oa !== ob) return oa - ob;
-    return String(a.unitCode || a.unitName).localeCompare(String(b.unitCode || b.unitName), 'zh-Hant');
+  const masterMap = new Map(master.map(u => [u.unitCode, u]));
+  const ordered = [];
+  allowed.unitCodes.forEach(code => {
+    if (map.has(code)) ordered.push(map.get(code));
+  });
+  // 補充 map 中其餘（理論上應已覆蓋）
+  map.forEach((u, code) => {
+    if (!ordered.some(x => x.unitCode === code)) ordered.push(u);
   });
 
   selectedIntervalUnitCodes = new Set(
     Array.from(selectedIntervalUnitCodes).filter(code => map.has(code))
   );
 
-  if (units.length === 0) {
-    wrap.innerHTML = '<span style="color:#666;font-size:14px;">找不到符合所選作息類型的單位</span>';
+  if (ordered.length === 0) {
+    wrap.innerHTML = '<span style="color:#666;font-size:14px;">找不到符合所選作息類型且屬於本預算單位的實際單位</span>';
     return;
   }
 
-  units.forEach(u => {
+  ordered.forEach(u => {
+    const latest = masterMap.get(u.unitCode) || u;
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'weekday-btn';
-    btn.textContent = `${u.unitCode} - ${u.unitName}`;
-    btn.dataset.value = u.unitCode;
-    if (selectedIntervalUnitCodes.has(u.unitCode)) btn.classList.add('active');
+    btn.textContent = `${latest.unitCode} - ${latest.unitName}`;
+    btn.dataset.value = latest.unitCode;
+    if (selectedIntervalUnitCodes.has(latest.unitCode)) btn.classList.add('active');
     btn.addEventListener('click', () => {
-      if (selectedIntervalUnitCodes.has(u.unitCode)) {
-        selectedIntervalUnitCodes.delete(u.unitCode);
+      if (selectedIntervalUnitCodes.has(latest.unitCode)) {
+        selectedIntervalUnitCodes.delete(latest.unitCode);
       } else {
-        selectedIntervalUnitCodes.add(u.unitCode);
+        selectedIntervalUnitCodes.add(latest.unitCode);
       }
       selectedSourceIdsForDelete.clear();
-      btn.classList.toggle('active', selectedIntervalUnitCodes.has(u.unitCode));
+      btn.classList.toggle('active', selectedIntervalUnitCodes.has(latest.unitCode));
       updateIntervalPreview();
     });
     wrap.appendChild(btn);
@@ -897,10 +1116,18 @@ function getSelectedIntervalUnitCodes() {
 function getIntervalHourSettingMatches(academicYear, scheduleTypes, unitCodes) {
   const typeSet = new Set(scheduleTypes);
   const unitSet = new Set(unitCodes);
+  // 雙重保險：再以預算群組 scope 過濾
+  const allowed = getAllowedUnitCodesForBudgetNameYear(
+    getBudgets(),
+    calendarFilter.selectedBudgetName,
+    academicYear
+  );
+  const scopeSet = allowed.ok ? new Set(allowed.unitCodes) : new Set();
   return getHourSettings().filter(h =>
     h.academicYear === academicYear &&
     typeSet.has(h.scheduleType) &&
-    unitSet.has(h.unitCode)
+    unitSet.has(h.unitCode) &&
+    scopeSet.has(h.unitCode)
   );
 }
 

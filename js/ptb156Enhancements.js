@@ -6,6 +6,7 @@ import {
   getUnits,
   getHourSettings,
   saveHourSetting,
+  getBudgets,
   getCalendarHolidays,
   saveCalendarHoliday,
   deleteCalendarHoliday,
@@ -23,6 +24,7 @@ import {
   getDatesInRange,
   formatDateForDisplay
 } from './utils.js?v=1.6.0';
+import { findBudgetByOptionValue } from './hourBudgetScopeUtils.js?v=1.6.0';
 
 let hourEditingId = null;
 let selectedHourUnitCodes = new Set();
@@ -128,7 +130,17 @@ function enhanceHourSettingPage(root) {
 
   const academicYear = root.querySelector('#hour-academicYear');
   if (academicYear) {
-    academicYear.addEventListener('change', () => setTimeout(() => renderHourUnitButtons(root), 0));
+    academicYear.addEventListener('change', () => {
+      selectedHourUnitCodes.clear();
+      setTimeout(() => renderHourUnitButtons(root), 0);
+    });
+  }
+  const budgetGroup = root.querySelector('#hour-budget-group');
+  if (budgetGroup) {
+    budgetGroup.addEventListener('change', () => {
+      selectedHourUnitCodes.clear();
+      setTimeout(() => renderHourUnitButtons(root), 0);
+    });
   }
 
   const cancelButton = root.querySelector('#hour-cancel-btn');
@@ -140,6 +152,13 @@ function enhanceHourSettingPage(root) {
   }
 }
 
+function getSelectedBudgetForHourForm(root) {
+  const ay = valueOf(root, '#hour-academicYear');
+  const budgetVal = valueOf(root, '#hour-budget-group');
+  if (!ay || !budgetVal) return null;
+  return findBudgetByOptionValue(getBudgets(), budgetVal, ay);
+}
+
 function renderHourUnitButtons(root) {
   const wrap = root.querySelector('#hour-unit-buttons-v2');
   const hiddenSelect = root.querySelector('#hour-unit');
@@ -149,15 +168,37 @@ function renderHourUnitButtons(root) {
     selectedHourUnitCodes.add(hiddenSelect.value);
   }
 
-  const units = getUnits();
-  const validCodes = new Set(units.map(unit => unit.unitCode));
+  const budget = getSelectedBudgetForHourForm(root);
+  wrap.innerHTML = '';
+  if (!budget) {
+    wrap.innerHTML = '<span style="color:#666;font-size:14px;">請先選擇單位（預算群組）</span>';
+    selectedHourUnitCodes.clear();
+    if (hiddenSelect) hiddenSelect.value = '';
+    return;
+  }
+
+  const allowedOrder = (budget.unitCodes || []).slice();
+  const allowedSet = new Set(allowedOrder);
+  const master = getUnits();
+  const masterMap = new Map(master.map(unit => [unit.unitCode, unit]));
+  const units = [];
+  const missing = [];
+  allowedOrder.forEach(code => {
+    const unit = masterMap.get(code);
+    if (unit) units.push(unit);
+    else missing.push(code);
+  });
+  if (missing.length) {
+    console.warn('[PTB 1.5.6/1.6.0] 預算群組 unitCodes 在單位設定中不存在：', missing);
+  }
+
   selectedHourUnitCodes = new Set(
-    Array.from(selectedHourUnitCodes).filter(code => validCodes.has(code))
+    Array.from(selectedHourUnitCodes).filter(code => allowedSet.has(code) && masterMap.has(code))
   );
 
-  wrap.innerHTML = '';
   if (units.length === 0) {
-    wrap.innerHTML = '<span style="color:#666;font-size:14px;">請先建立單位設定</span>';
+    wrap.innerHTML = '<span style="color:#666;font-size:14px;">此預算單位沒有可用的實際單位</span>';
+    if (hiddenSelect) hiddenSelect.value = '';
     return;
   }
 
@@ -200,13 +241,22 @@ function handleEnhancedHourSave(root) {
   const selectedDays = Array.from(root.querySelectorAll('#hour-weekdays .weekday-btn.active'))
     .map(button => button.dataset.day);
   const unitCodes = Array.from(selectedHourUnitCodes);
+  const budgetVal = valueOf(root, '#hour-budget-group');
 
-  if (!academicYear || !scheduleType || unitCodes.length === 0) {
-    showToast('學年度、作息類型、單位均為必填', 'error');
+  if (!academicYear) {
+    showToast('請選擇學年度', 'error');
+    return;
+  }
+  if (!budgetVal) {
+    showToast('請選擇單位', 'error');
+    return;
+  }
+  if (!scheduleType || unitCodes.length === 0) {
+    showToast('學年度、作息類型、實際單位均為必填', 'error');
     return;
   }
   if (hourEditingId && unitCodes.length !== 1) {
-    showToast('編輯既有時數設定時只能選擇一個單位', 'error');
+    showToast('編輯既有時數設定時只能選擇一個實際單位', 'error');
     return;
   }
   if (selectedDays.length === 0) {
@@ -226,11 +276,23 @@ function handleEnhancedHourSave(root) {
     return;
   }
 
+  const selectedBudget = findBudgetByOptionValue(getBudgets(), budgetVal, academicYear);
+  if (!selectedBudget || String(selectedBudget.academicYear) !== String(academicYear)) {
+    showToast('選擇的單位不屬於目前學年度', 'error');
+    return;
+  }
+  const allowed = new Set(selectedBudget.unitCodes || []);
+  const outOfScope = unitCodes.find(code => !allowed.has(code));
+  if (outOfScope) {
+    showToast('實際單位不屬於所選預算單位', 'error');
+    return;
+  }
+
   const weekdays = arrayToWeekdays(selectedDays);
   const unitMap = new Map(getUnits().map(unit => [unit.unitCode, unit]));
   const invalidCode = unitCodes.find(code => !unitMap.has(code));
   if (invalidCode) {
-    showToast('單位必須來自單位設定', 'error');
+    showToast('實際單位已不存在於單位設定', 'error');
     return;
   }
 

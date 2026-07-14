@@ -1,0 +1,6 @@
+id,academicYear,budgetName,unitCodes,budgetAmount,note,createdAt,updatedAt
+BUD_ANON_114_ALPHA,114,Group_Alpha,"[""U_A1"", ""U_A2""]",3497920,anon group alpha,2026-07-09T08:31:11.077Z,2026-07-09T08:31:11.077Z
+BUD_ANON_114_BETA,114,Group_Beta,"[""U_B1"", ""U_B2""]",3497920,anon group beta,2026-07-09T08:31:11.077Z,2026-07-09T08:31:11.077Z
+BUD_ANON_114_GAMMA,114,Group_Gamma,"[""U_C1""]",1748960,anon group gamma,2026-07-09T08:31:11.077Z,2026-07-09T08:31:11.077Z
+BUD_ANON_115_ALPHA,115,Group_Alpha,"[""U_A1""]",1000000,cross-year alpha different units,2026-07-09T08:31:11.077Z,2026-07-09T08:31:11.077Z
+BUD_ANON_115_BETA,115,Group_Beta,"[""U_B1"", ""U_B2""]",800000,cross-year beta,2026-07-09T08:31:11.077Z,2026-07-09T08:31:11.077Z
