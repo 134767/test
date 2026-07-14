@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>工讀時薪計算系統</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <header>
+      <h1>工讀時薪計算系統 <span class="version">版本 1.6.0</span></h1>
+    </header>
+
+    <div id="tab-bar" class="tab-bar"></div>
+    <div id="main-content" class="main-content"></div>
+  </div>
+
+  <script type="module">
+    import { bootstrap } from './js/app.js?v=1.6.0';
+    bootstrap().catch(err => { console.error(err); alert('系統初始化失敗，請重新整理後再試。'); });
+  </script>
+</body>
+</html>
