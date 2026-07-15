@@ -4,7 +4,17 @@ function setFieldLabel(root, selector, text) {
   const field = root.querySelector(selector);
   const group = field?.closest('.form-group, .query-field');
   const label = group?.querySelector('label');
-  if (label && label.textContent.trim() !== text) label.textContent = text;
+  if (!label) return;
+
+  const required = label.querySelector('.required');
+  if (!required) {
+    if (label.textContent.trim() !== text) label.textContent = text;
+    return;
+  }
+
+  const directText = Array.from(label.childNodes).find(node => node.nodeType === Node.TEXT_NODE);
+  if (directText) directText.nodeValue = `${text} `;
+  else label.insertBefore(document.createTextNode(`${text} `), required);
 }
 
 function replaceBudgetTerminology(root) {
