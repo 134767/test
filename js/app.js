@@ -1,17 +1,18 @@
 // js/app.js
 // 應用程式主控：初始化、tab 切換、各頁面載入
 
-import { initDataStore, getDataMode, exportLocalCsvDbSnapshot, resetLocalDataFromCsvDb, subscribeCollection } from './dataStore.js?v=1.6.0-calendar-wage-hotfix-1';
-import { installDbFeedback, beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-calendar-wage-hotfix-1';
-import { AppState, setCurrentTab } from './state.js?v=1.6.0-calendar-wage-hotfix-1';
-import { initBudgetPage, renderBudgetTable } from './budgetPage.js?v=1.6.0-calendar-wage-hotfix-1';
-import { initUnitPage, renderUnitTable } from './unitPage.js?v=1.6.0-calendar-wage-hotfix-1';
-import { initHourSettingPage, renderHourTable } from './hourSettingPage.js?v=1.6.0-calendar-wage-hotfix-1';
-import { initCalendarPage, renderCalendarTable } from './calendarPage.js?v=1.6.0-calendar-wage-hotfix-1';
-import { initSalaryEntryPage, renderSalaryEntryPage } from './salaryEntryPage.js?v=1.6.0-calendar-wage-hotfix-1';
-import { initDifferenceForecastPage, renderDifferenceForecastPage } from './differenceForecastPage.js?v=1.6.0-calendar-wage-hotfix-1';
-import { installPtb156Enhancements } from './ptb156Enhancements.js?v=1.6.0-calendar-wage-hotfix-1';
-import { installPtb156cUiSyncPatch } from './ptb156cUiSyncPatch.js?v=1.6.0-calendar-wage-hotfix-1';
+import { installGasRuntimeCompatibility, formatGasRuntimeError } from './gasRuntimeCompat.js?v=1.6.0-calendar-wage-hotfix-2';
+import { initDataStore, getDataMode, exportLocalCsvDbSnapshot, resetLocalDataFromCsvDb, subscribeCollection } from './dataStore.js?v=1.6.0-calendar-wage-hotfix-2';
+import { installDbFeedback, beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-calendar-wage-hotfix-2';
+import { AppState, setCurrentTab } from './state.js?v=1.6.0-calendar-wage-hotfix-2';
+import { initBudgetPage, renderBudgetTable } from './budgetPage.js?v=1.6.0-calendar-wage-hotfix-2';
+import { initUnitPage, renderUnitTable } from './unitPage.js?v=1.6.0-calendar-wage-hotfix-2';
+import { initHourSettingPage, renderHourTable } from './hourSettingPage.js?v=1.6.0-calendar-wage-hotfix-2';
+import { initCalendarPage, renderCalendarTable } from './calendarPage.js?v=1.6.0-calendar-wage-hotfix-2';
+import { initSalaryEntryPage, renderSalaryEntryPage } from './salaryEntryPage.js?v=1.6.0-calendar-wage-hotfix-2';
+import { initDifferenceForecastPage, renderDifferenceForecastPage } from './differenceForecastPage.js?v=1.6.0-calendar-wage-hotfix-2';
+import { installPtb156Enhancements } from './ptb156Enhancements.js?v=1.6.0-calendar-wage-hotfix-2';
+import { installPtb156cUiSyncPatch } from './ptb156cUiSyncPatch.js?v=1.6.0-calendar-wage-hotfix-2';
 
 let mainContainer = null;
 let tabButtons = {};
@@ -137,7 +138,25 @@ function setupGlobalClearButton() {
   console.log('%c[工讀系統] console 工具：clearWorkStudyData() 清除本機快取；exportWorkStudyCsvDb() 匯出 CSV 快照；reloadWorkStudyCsvDb() 從 db/*.csv 重新載入本地測試 DB。', 'color:#888');
 }
 
+function renderBootstrapFailure(error) {
+  const detail = formatGasRuntimeError(error);
+  const container = document.getElementById('main-content');
+  if (container) {
+    const panel = document.createElement('div');
+    panel.setAttribute('role', 'alert');
+    const title = document.createElement('h2');
+    title.textContent = '資料庫載入失敗';
+    const message = document.createElement('p');
+    message.textContent = detail;
+    const hint = document.createElement('p');
+    hint.textContent = '請確認 Apps Script 部署版本、Script Properties 與 Sheet schema。';
+    panel.append(title, message, hint);
+    container.replaceChildren(panel);
+  }
+}
+
 export async function bootstrap() {
+  installGasRuntimeCompatibility();
   installDbFeedback();
   installPtb156cUiSyncPatch();
 
@@ -146,9 +165,11 @@ export async function bootstrap() {
     await initDataStore();
     endDbOperation(initToken, { message: '資料載入完成' });
   } catch (err) {
+    const detail = formatGasRuntimeError(err);
     console.error('[DataStore] initialization failed', err);
-    endDbOperation(initToken, { error: true, message: '資料載入失敗，請重新整理後再試' });
-    throw err;
+    endDbOperation(initToken, { error: true, message: `資料載入失敗：${detail}` });
+    renderBootstrapFailure(err);
+    return;
   }
 
   initTabs();
