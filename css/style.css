@@ -1429,3 +1429,16 @@ body.db-is-busy button[data-db-locked-by-feedback="true"] {
   .salary-query-panel select,
   .salary-query-panel input { width: 100%; }
 }
+.calendar-wage-warning {
+  color: #dc3545;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  margin-top: 6px;
+}
+
+.calendar-wage-preview {
+  color: #b42318;
+  font-weight: 700;
+  margin-bottom: 8px;
+}

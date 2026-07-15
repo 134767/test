@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Browser gate for calendar interval wage source-of-truth."""
+"""Browser gate for Calendar interval warning and dated wage snapshots."""
 import json
 import sys
 from playwright.sync_api import sync_playwright
@@ -29,51 +29,96 @@ def main():
               }
               if(!selected) throw new Error('calendar wage browser fixture unavailable');
               const {h,budget}=selected;
-              hours.forEach(row=>delete row.hourlyWage);
-              const startYear=Number(h.academicYear)+1911;
-              let date=new Date(Date.UTC(startYear,7,1));
               const weekdays=String(h.weekdays||'').split('|');
               const names=['星期日','星期一','星期二','星期三','星期四','星期五','星期六'];
-              while(!weekdays.includes(names[date.getUTCDay()]))date.setUTCDate(date.getUTCDate()+1);
-              const iso=date.toISOString().slice(0,10);
-              const rows=JSON.parse(localStorage.getItem('workStudy_calendarRows')||'[]').filter(r=>!(r.date===iso&&r.sourceHourSettingId===h.id));
+              const findDate=(start,end)=>{
+                let date=new Date(start+'T00:00:00Z'),last=new Date(end+'T00:00:00Z');
+                while(date<=last){
+                  if(weekdays.includes(names[date.getUTCDay()]))return date.toISOString().slice(0,10);
+                  date.setUTCDate(date.getUTCDate()+1);
+                }
+                throw new Error(`no matching weekday in ${start}..${end}`);
+              };
+              const startYear=Number(h.academicYear)+1911;
+              const oldDate=findDate(`${startYear}-08-01`,`${startYear}-12-31`);
+              const newDate=findDate(`${startYear+1}-01-01`,`${startYear+1}-07-31`);
+              hours.forEach(row=>delete row.hourlyWage);
+              const targetDates=new Set([oldDate,newDate]);
+              const rows=JSON.parse(localStorage.getItem('workStudy_calendarRows')||'[]').filter(r=>!(targetDates.has(r.date)&&r.sourceHourSettingId===h.id));
+              const holidays=JSON.parse(localStorage.getItem('workStudy_calendarHolidays')||'[]').filter(r=>!targetDates.has(r.date));
               localStorage.setItem('workStudy_hourSettings',JSON.stringify(hours));
               localStorage.setItem('workStudy_calendarRows',JSON.stringify(rows));
-              return {budgetName:budget.budgetName,academicYear:String(h.academicYear),scheduleType:h.scheduleType,unitCode:h.unitCode,date:iso,sourceId:h.id};
+              localStorage.setItem('workStudy_calendarHolidays',JSON.stringify(holidays));
+              return {budgetName:budget.budgetName,academicYear:String(h.academicYear),scheduleType:h.scheduleType,unitCode:h.unitCode,oldDate,newDate,sourceId:h.id,rangeStart:`${startYear}-08-01`,rangeEnd:`${startYear+1}-07-31`};
             }"""
         )
         page.reload(wait_until="networkidle", timeout=60000)
 
         page.click('[data-tab="hour"]')
-        OUT["checks"]["hour_setting_wage_absent"] = page.locator("#hour-wage").count() == 0 and "時薪" not in page.locator("#hour-table thead").inner_text()
+        OUT["checks"]["hour_setting_wage_ui_absent"] = page.locator("#hour-wage").count() == 0 and "時薪" not in page.locator("#hour-table thead").inner_text()
 
         page.click('[data-tab="calendar"]')
         page.select_option("#cal-filter-budget-group", label=fixture["budgetName"])
         page.select_option("#cal-filter-mode", value="academicYear")
         page.select_option("#cal-filter-year", value=fixture["academicYear"])
         page.click("#cal-filter-query")
+
+        def open_interval(date, wage):
+            page.click("#btn-add-interval")
+            page.fill("#int-start", date.replace("-", "/"))
+            page.fill("#int-end", date.replace("-", "/"))
+            page.locator(f'#int-scheduleType-buttons [data-value="{fixture["scheduleType"]}"]').click()
+            page.locator(f'#int-unit-buttons [data-value="{fixture["unitCode"]}"]').click()
+            page.fill("#int-hourly-wage", str(wage))
+
         page.click("#btn-add-interval")
-
-        OUT["checks"]["required_wage_input"] = page.locator("#int-hourly-wage").is_visible() and page.locator("#int-hourly-wage").get_attribute("min") == "1"
         warning = page.locator("#int-wage-year-warning").inner_text()
-        OUT["checks"]["red_year_warning"] = bool(warning) and "～" in warning
-        page.fill("#int-start", fixture["date"].replace("-", "/").replace("-", "/"))
-        page.fill("#int-end", fixture["date"].replace("-", "/").replace("-", "/"))
-        page.locator(f'#int-scheduleType-buttons [data-value="{fixture["scheduleType"]}"]').click()
-        page.locator(f'#int-unit-buttons [data-value="{fixture["unitCode"]}"]').click()
+        hint = page.locator("#int-academic-year-range-hint").inner_text()
+        preview_before = page.locator("#int-preview-wage").inner_text()
+        OUT["checks"]["fixed_warning_exact"] = warning.startswith("跨年度要考慮政府薪資調漲問題") and "1/1～12/31" in warning and warning.endswith("。")
+        OUT["checks"]["academic_year_hint_separate"] = fixture["rangeStart"] in hint and fixture["rangeEnd"] in hint and hint != warning
+        OUT["checks"]["preview_before_wage"] = preview_before == "本次套用時薪：尚未輸入有效時薪"
+        OUT["checks"]["required_wage_input"] = page.locator("#int-hourly-wage").is_visible() and page.locator("#int-hourly-wage").get_attribute("min") == "1"
+        page.click("#int-cancel-btn")
 
-        page.fill("#int-hourly-wage", "0")
+        open_interval(fixture["oldDate"], 190)
+        OUT["checks"]["preview_after_190"] = page.locator("#int-preview-wage").inner_text() == "本次套用時薪：190"
         page.click("#int-confirm-btn")
-        OUT["checks"]["zero_wage_rejected"] = page.locator("#interval-modal").is_visible()
-        page.fill("#int-hourly-wage", "190")
+        page.wait_for_timeout(300)
+
+        open_interval(fixture["newDate"], 200)
+        OUT["checks"]["preview_after_200"] = page.locator("#int-preview-wage").inner_text() == "本次套用時薪：200"
         page.click("#int-confirm-btn")
-        page.wait_for_timeout(500)
-        saved = page.evaluate(
-            """fixture => JSON.parse(localStorage.getItem('workStudy_calendarRows')||'[]').find(r=>r.date===fixture.date&&r.sourceHourSettingId===fixture.sourceId)""",
+        page.wait_for_timeout(300)
+
+        rows = page.evaluate(
+            """fixture => JSON.parse(localStorage.getItem('workStudy_calendarRows')||'[]').filter(r=>r.sourceHourSettingId===fixture.sourceId&&(r.date===fixture.oldDate||r.date===fixture.newDate))""",
             fixture,
         )
-        OUT["checks"]["row_wage_from_interval"] = bool(saved) and saved.get("hourlyWage") == 190
-        OUT["checks"]["source_id_preserved"] = bool(saved) and saved.get("sourceHourSettingId") == fixture["sourceId"]
+        old_row = next((row for row in rows if row.get("date") == fixture["oldDate"]), None)
+        new_row = next((row for row in rows if row.get("date") == fixture["newDate"]), None)
+        OUT["checks"]["same_source_two_intervals"] = bool(old_row and new_row) and old_row.get("sourceHourSettingId") == new_row.get("sourceHourSettingId") == fixture["sourceId"]
+        OUT["checks"]["old_wage_190"] = bool(old_row) and old_row.get("hourlyWage") == 190
+        OUT["checks"]["new_wage_200"] = bool(new_row) and new_row.get("hourlyWage") == 200
+
+        page.click("#btn-del-interval")
+        OUT["checks"]["delete_mode_wage_hidden"] = not page.locator("#int-hourly-wage").is_visible()
+        OUT["checks"]["delete_mode_warning_hidden"] = not page.locator("#int-wage-year-warning").is_visible()
+        OUT["checks"]["delete_mode_range_hidden"] = not page.locator("#int-academic-year-range-hint").is_visible()
+        OUT["checks"]["delete_mode_preview_wage_absent"] = page.locator("#int-preview-wage").count() == 0
+        page.click("#int-cancel-btn")
+
+        page.reload(wait_until="networkidle", timeout=60000)
+        persisted = page.evaluate(
+            """fixture => {
+              const rows=JSON.parse(localStorage.getItem('workStudy_calendarRows')||'[]');
+              const hour=JSON.parse(localStorage.getItem('workStudy_hourSettings')||'[]').find(h=>h.id===fixture.sourceId);
+              return {old:rows.find(r=>r.date===fixture.oldDate&&r.sourceHourSettingId===fixture.sourceId),new:rows.find(r=>r.date===fixture.newDate&&r.sourceHourSettingId===fixture.sourceId),hour};
+            }""",
+            fixture,
+        )
+        OUT["checks"]["reload_persistence"] = bool(persisted["old"] and persisted["new"]) and persisted["old"].get("hourlyWage") == 190 and persisted["new"].get("hourlyWage") == 200
+        OUT["checks"]["hour_setting_hourly_wage_absent"] = bool(persisted["hour"]) and "hourlyWage" not in persisted["hour"]
         browser.close()
 
     OUT["checks"]["console_errors_zero"] = len(OUT["console_errors"]) == 0

@@ -48,8 +48,10 @@ import {
   getDuplicateBudgetNameYears
 } from './hourBudgetScopeUtils.js?v=1.6.0-calendar-wage-hotfix-1';
 import {
+  CALENDAR_WAGE_YEAR_WARNING,
   buildCalendarRowFromHourSetting,
-  getAcademicYearDateRange,
+  getAcademicYearRangeHint,
+  getCalendarWagePreviewText,
   validateCalendarIntervalRange,
   validateIntervalHourlyWage
 } from './calendarWageUtils.js?v=1.6.0-calendar-wage-hotfix-1';
@@ -230,7 +232,8 @@ export function initCalendarPage(container) {
             <div class="form-group" id="int-hourly-wage-group">
               <label>時薪 <span class="required">*</span></label>
               <input type="number" id="int-hourly-wage" min="1" step="1" placeholder="請輸入此日期區間適用的時薪">
-              <div id="int-wage-year-warning" style="color:#dc3545;font-size:14px;font-weight:600;line-height:1.5;margin-top:6px;"></div>
+              <div id="int-wage-year-warning" class="calendar-wage-warning"></div>
+              <div id="int-academic-year-range-hint" class="help-text"></div>
             </div>
           </div>
           <div class="form-row">
@@ -350,10 +353,12 @@ function bindCalendarEvents() {
   const iModal = containerEl.querySelector('#interval-modal');
   const iConfirm = containerEl.querySelector('#int-confirm-btn');
   const iCancel = containerEl.querySelector('#int-cancel-btn');
+  const iWage = containerEl.querySelector('#int-hourly-wage');
 
   iConfirm.addEventListener('click', handleIntervalConfirm);
   iCancel.addEventListener('click', () => hideIntervalModal());
   iModal.addEventListener('click', e => { if (e.target === iModal) hideIntervalModal(); });
+  iWage.addEventListener('input', updateIntervalPreview);
 
   // Holiday modal bindings
   const hModal = containerEl.querySelector('#holiday-modal');
@@ -391,7 +396,7 @@ function bindCalendarEvents() {
     selectedIntervalUnitCodes.clear();
     populateScheduleTypeButtonsForInterval(true);
     populateUnitButtonsForInterval(true);
-    updateIntervalYearWarning();
+    updateIntervalYearGuidance();
     updateIntervalPreview();
   });
 
@@ -942,7 +947,7 @@ function showIntervalModal(mode) {
   populateAcademicYearsForInterval();
   populateScheduleTypeButtonsForInterval(true);
   populateUnitButtonsForInterval(true);
-  updateIntervalYearWarning();
+  updateIntervalYearGuidance();
   updateIntervalPreview();
 
   modal.style.display = 'flex';
@@ -952,14 +957,19 @@ function hideIntervalModal() {
   containerEl.querySelector('#interval-modal').style.display = 'none';
 }
 
-function updateIntervalYearWarning() {
+function updateIntervalYearGuidance() {
   const warning = containerEl.querySelector('#int-wage-year-warning');
+  const rangeHint = containerEl.querySelector('#int-academic-year-range-hint');
   const academicYear = containerEl.querySelector('#int-academicYear').value;
-  const range = getAcademicYearDateRange(academicYear);
-  if (!warning) return;
-  warning.textContent = intervalModalMode === 'add' && range
-    ? `所選學年度的日期必須介於 ${range.start}～${range.end}`
-    : '';
+  const isAddMode = intervalModalMode === 'add';
+  if (warning) {
+    warning.textContent = isAddMode ? CALENDAR_WAGE_YEAR_WARNING : '';
+    warning.style.display = isAddMode ? '' : 'none';
+  }
+  if (rangeHint) {
+    rangeHint.textContent = isAddMode ? getAcademicYearRangeHint(academicYear) : '';
+    rangeHint.style.display = isAddMode && academicYear ? '' : 'none';
+  }
 }
 
 function populateAcademicYearsForInterval() {
@@ -1166,28 +1176,44 @@ function updateIntervalPreview() {
   const ay = containerEl.querySelector('#int-academicYear').value;
   const scheduleTypes = getSelectedIntervalScheduleTypes();
   const unitCodes = getSelectedIntervalUnitCodes();
+  const wageInput = containerEl.querySelector('#int-hourly-wage').value;
 
   previewEl.innerHTML = '';
 
+  if (intervalModalMode === 'add') {
+    const wageSummary = document.createElement('div');
+    wageSummary.id = 'int-preview-wage';
+    wageSummary.className = 'calendar-wage-preview';
+    wageSummary.textContent = getCalendarWagePreviewText(wageInput);
+    previewEl.appendChild(wageSummary);
+  }
+
+  const appendPreviewMessage = (message, color = '#666') => {
+    const div = document.createElement('div');
+    div.style.color = color;
+    div.textContent = message;
+    previewEl.appendChild(div);
+  };
+
   if (!ay) {
-    previewEl.innerHTML = '<div style="color:#666">請選擇學年度</div>';
+    appendPreviewMessage('請選擇學年度');
     return;
   }
 
   if (scheduleTypes.length === 0) {
-    previewEl.innerHTML = '<div style="color:#666">請至少選擇一個作息類型</div>';
+    appendPreviewMessage('請至少選擇一個作息類型');
     return;
   }
 
   if (unitCodes.length === 0) {
-    previewEl.innerHTML = '<div style="color:#666">請至少選擇一個單位</div>';
+    appendPreviewMessage('請至少選擇一個單位');
     return;
   }
 
   const matches = getIntervalHourSettingMatches(ay, scheduleTypes, unitCodes);
 
   if (matches.length === 0) {
-    previewEl.innerHTML = '<div style="color:#c00">找不到符合的時數設定</div>';
+    appendPreviewMessage('找不到符合的時數設定', '#c00');
     return;
   }
 
