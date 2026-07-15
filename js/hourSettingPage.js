@@ -11,20 +11,20 @@ import {
   saveScheduleType,
   deleteScheduleType,
   isScheduleTypeUsed
-} from './dataStore.js?v=1.6.0-mutation-hotfix-1';
-import { formatNumber, showToast, formatTimeRange, getWeekdaysArray, arrayToWeekdays, renderPagination } from './utils.js?v=1.6.0-mutation-hotfix-1';
+} from './dataStore.js?v=1.6.0-calendar-wage-hotfix-1';
+import { formatNumber, showToast, formatTimeRange, getWeekdaysArray, arrayToWeekdays, renderPagination } from './utils.js?v=1.6.0-calendar-wage-hotfix-1';
 import {
   buildHourSettingDuplicateKey,
   getUniqueBudgetAcademicYears,
   planBatchHourCopy
-} from './hourBatchUtils.js?v=1.6.0-mutation-hotfix-1';
+} from './hourBatchUtils.js?v=1.6.0-calendar-wage-hotfix-1';
 import {
   getValidBudgetsForYear,
   findBudgetsByYearAndUnit,
   budgetOptionValue,
   findBudgetByOptionValue
-} from './hourBudgetScopeUtils.js?v=1.6.0-mutation-hotfix-1';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-mutation-hotfix-1';
+} from './hourBudgetScopeUtils.js?v=1.6.0-calendar-wage-hotfix-1';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-calendar-wage-hotfix-1';
 
 export {
   buildHourSettingDuplicateKey,
@@ -32,7 +32,7 @@ export {
   getValidBudgetUnitCodesForYear,
   isUnitInTargetBudgetScope,
   planBatchHourCopy
-} from './hourBatchUtils.js?v=1.6.0-mutation-hotfix-1';
+} from './hourBatchUtils.js?v=1.6.0-calendar-wage-hotfix-1';
 
 export {
   getValidBudgetsForYear,
@@ -40,7 +40,7 @@ export {
   resolveBudgetForNameAndYear,
   getDistinctValidBudgetNames,
   filterCalendarRowsByBudgetScope
-} from './hourBudgetScopeUtils.js?v=1.6.0-mutation-hotfix-1';
+} from './hourBudgetScopeUtils.js?v=1.6.0-calendar-wage-hotfix-1';
 
 let containerEl = null;
 let currentEditingId = null;
@@ -80,7 +80,6 @@ export function initHourSettingPage(container) {
             <th>週期類型</th>
             <th>開館時間</th>
             <th style="text-align:right">時數</th>
-            <th style="text-align:right">時薪</th>
             <th>備註</th>
             <th style="width:80px">操作</th>
           </tr>
@@ -136,10 +135,6 @@ export function initHourSettingPage(container) {
             <div class="form-group">
               <label>時數 <span class="required">*</span></label>
               <input type="number" step="0.1" id="hour-hours" placeholder="34">
-            </div>
-            <div class="form-group">
-              <label>時薪 <span class="required">*</span></label>
-              <input type="number" id="hour-wage" placeholder="196">
             </div>
           </div>
 
@@ -201,7 +196,7 @@ export function initHourSettingPage(container) {
             </div>
           </div>
           <div class="help-text" style="margin-bottom:8px;">
-            將完整複製所選資料（作息、單位、週期、時間、時數、時薪、備註）到目標學年度；僅學年度改為目標值。來源資料不會被修改。
+            將完整複製所選資料（作息、單位、週期、時間、時數、備註）到目標學年度；僅學年度改為目標值。來源資料不會被修改。
           </div>
           <div class="table-wrapper hour-batch-preview-wrap">
             <table class="data-table hour-batch-preview-table" id="hour-batch-preview-table">
@@ -213,7 +208,6 @@ export function initHourSettingPage(container) {
                   <th>週期類型</th>
                   <th>開館時間</th>
                   <th style="text-align:right">時數</th>
-                  <th style="text-align:right">時薪</th>
                   <th>備註</th>
                 </tr>
               </thead>
@@ -531,7 +525,6 @@ export function renderHourTable() {
       <td>${escapeHtml(wd)}</td>
       <td>${time}</td>
       <td style="text-align:right">${item.hours}</td>
-      <td style="text-align:right">${item.hourlyWage}</td>
       <td>${escapeHtml(item.note || '')}</td>
       <td><button class="btn-edit" data-id="${item.id}">編輯</button></td>
     `;
@@ -651,7 +644,7 @@ export function renderBatchHourPreview(sourceItems = []) {
   tbody.innerHTML = '';
   if (!sourceItems.length) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td colspan="8" style="text-align:center;color:#888;">沒有可預覽的資料</td>`;
+    tr.innerHTML = `<td colspan="7" style="text-align:center;color:#888;">沒有可預覽的資料</td>`;
     tbody.appendChild(tr);
     return;
   }
@@ -667,7 +660,6 @@ export function renderBatchHourPreview(sourceItems = []) {
       <td>${escapeHtml(wd)}</td>
       <td>${escapeHtml(time)}</td>
       <td style="text-align:right">${escapeHtml(item.hours)}</td>
-      <td style="text-align:right">${escapeHtml(item.hourlyWage)}</td>
       <td>${escapeHtml(item.note || '')}</td>
     `;
     tbody.appendChild(tr);
@@ -909,7 +901,6 @@ function showHourModal(item = null) {
   const start = containerEl.querySelector('#hour-startTime');
   const end = containerEl.querySelector('#hour-endTime');
   const hours = containerEl.querySelector('#hour-hours');
-  const wage = containerEl.querySelector('#hour-wage');
   const note = containerEl.querySelector('#hour-note');
 
   populateScheduleTypeSelect(item ? item.scheduleType : '');
@@ -922,7 +913,6 @@ function showHourModal(item = null) {
   start.value = item ? item.startTime : '08:00';
   end.value = item ? item.endTime : '21:30';
   hours.value = item ? item.hours : '';
-  wage.value = item ? item.hourlyWage : '';
   note.value = item ? (item.note || '') : '';
 
   if (item) {
@@ -980,7 +970,6 @@ async function handleSaveHourSetting() {
   const start = containerEl.querySelector('#hour-startTime').value;
   const end = containerEl.querySelector('#hour-endTime').value;
   const hours = containerEl.querySelector('#hour-hours').value;
-  const wage = containerEl.querySelector('#hour-wage').value;
   const note = containerEl.querySelector('#hour-note').value.trim();
 
   const selectedDays = getSelectedWeekdays();
@@ -1045,11 +1034,6 @@ async function handleSaveHourSetting() {
     showToast('時數必須為數字', 'error');
     return;
   }
-  if (!wage || isNaN(Number(wage))) {
-    showToast('時薪必須為數字', 'error');
-    return;
-  }
-
   // 唯一性檢查：同一學年度 + 作息 + 單位 + 週期 + 開館時間
   const combinations = scheduleTypes.flatMap(scheduleType => unitCodes.map(unitCode => ({ scheduleType, unitCode })));
   const existingKeys = new Set(getHourSettings().filter(h => !currentEditingId || h.id !== currentEditingId).map(buildHourSettingDuplicateKey));
@@ -1066,7 +1050,7 @@ async function handleSaveHourSetting() {
     id: currentEditingId,
     academicYear: ay, scheduleType, unitCode, unitName: unitMap.get(unitCode).unitName,
     weekdays: weekdaysStr, startTime: start, endTime: end,
-    hours: Number(hours), hourlyWage: Number(wage), note
+    hours: Number(hours), note
   }));
   try {
     await runWithMutationUiLock([containerEl.querySelector('#hour-save-btn'),containerEl.querySelector('#hour-cancel-btn')],()=>wasEditing ? saveHourSetting(records[0]) : saveHourSettingsBatch(records),{processingLabel:'同步中…'});

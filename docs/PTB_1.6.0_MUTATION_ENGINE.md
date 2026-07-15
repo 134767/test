@@ -22,7 +22,7 @@ authoritative_projection: schema fields only
 date_validation: strict ISO date with UTC component equality
 legacy_calendar_delete: budget-name and academic-year/unit scoped compatibility retained
 gas_localStorage_policy: forbidden for business collections
-asset_version: 1.6.0-mutation-hotfix-1
+asset_version: 1.6.0-calendar-wage-hotfix-1
 deployment_status: NOT_DEPLOYED
 real_roundtrip_status: NOT_RUN
 known_limits:
@@ -43,7 +43,11 @@ Server normalization、Sheet serialization、request context cache 與 authorita
 
 Salary 的 `actualAmount` 是使用者直接輸入的實際金額，Server 只驗證 finite non-negative，不以 `actualHours * hourlyWage` 覆寫。`inspectSalaryEntryDuplicates` / `inspectSalaryEntryDuplicateKeys` 只讀取並回報重複鍵，不自動修正資料。
 
-部署測試環境時設定 `PTB_STATIC_ASSET_VERSION=1.6.0-mutation-hotfix-1`。真實 harness 另需匿名測試 Sheet 副本與 `PTB_TEST_MODE=enabled`。
+時薪來源已改為日期區間快照：`03_hour_settings` 不再保存時薪；新增作息區間時必須輸入大於 0 的時薪，並寫入每筆 `05_calendar_rows.hourlyWage`。同一個 `sourceHourSettingId` 可在不同日期區間保留不同時薪。薪資的 `hourlyWage` 僅供 audit 顯示，`actualAmount` 仍是人工輸入；當期與過去差額逐列以 `calendarRows.hours * calendarRows.hourlyWage` 計算，未來預估只讀取 forecast interval 的 `hourlyWage`。
+
+若 `inspectPtb160Schema()` 回報 `03_hour_settings.hourlyWage` 為 deprecated column，必須先審查再於匿名測試 Sheet 執行 `migratePtb160Schema()`。migration 會先建立 `03_hour_settings` 與 `05_calendar_rows` 隱藏備份、補齊缺少的日曆時薪，確認無 unresolved rows 後才移除舊欄位。正式 Sheet migration、真實 round-trip 與 deployment 均不在本次執行範圍。
+
+部署測試環境時設定 `PTB_STATIC_ASSET_VERSION=1.6.0-calendar-wage-hotfix-1`。真實 harness 另需匿名測試 Sheet 副本與 `PTB_TEST_MODE=enabled`。
 
 Real-Sheet harness 的 Salary duplicate 測試會從匿名資料建立可還原的受控 fixture；找不到唯一 unit/budget fixture 時明確回報 `TEST_FIXTURE_REQUIRED`，不再把 skipped 記為 PASS。Create/update/delete harness 皆驗證 row count、ID 唯一性／保留性，以及 response 與重新讀取結果完整 deep-equal。
 

@@ -132,7 +132,6 @@ export function planBatchHourCopy({
       startTime: src.startTime || '',
       endTime: src.endTime || '',
       hours: Number(src.hours),
-      hourlyWage: Number(src.hourlyWage),
       note: src.note || ''
     };
 

@@ -147,7 +147,7 @@ test('copied_fields_preserved and unit_name_uses_latest_master_value', () => {
   assert.equal(p.startTime, src.startTime);
   assert.equal(p.endTime, src.endTime);
   assert.equal(p.hours, src.hours);
-  assert.equal(p.hourlyWage, src.hourlyWage);
+  assert.equal(Object.hasOwn(p, 'hourlyWage'), false);
   assert.equal(p.note, src.note);
   assert.equal(p.unitName, 'Unit_A1_Latest');
   assert.notEqual(p.unitName, src.unitName);

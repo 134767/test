@@ -24,8 +24,8 @@ import {
   deleteHolidayName,
   isHolidayNameUsed,
   ensureHolidayNamesFromExistingCalendarHolidays
-} from './dataStore.js?v=1.6.0-mutation-hotfix-1';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-mutation-hotfix-1';
+} from './dataStore.js?v=1.6.0-calendar-wage-hotfix-1';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-calendar-wage-hotfix-1';
 import {
   showToast,
   isValidDate,
@@ -38,7 +38,7 @@ import {
   bindDatePickerField,
   inferAcademicYearFromDate,
   renderPagination
-} from './utils.js?v=1.6.0-mutation-hotfix-1';
+} from './utils.js?v=1.6.0-calendar-wage-hotfix-1';
 import {
   getDistinctValidBudgetNames,
   getYearsForBudgetName,
@@ -46,7 +46,13 @@ import {
   filterCalendarRowsByBudgetScope,
   getAllowedUnitCodesForBudgetNameYear,
   getDuplicateBudgetNameYears
-} from './hourBudgetScopeUtils.js?v=1.6.0-mutation-hotfix-1';
+} from './hourBudgetScopeUtils.js?v=1.6.0-calendar-wage-hotfix-1';
+import {
+  buildCalendarRowFromHourSetting,
+  getAcademicYearDateRange,
+  validateCalendarIntervalRange,
+  validateIntervalHourlyWage
+} from './calendarWageUtils.js?v=1.6.0-calendar-wage-hotfix-1';
 
 let containerEl = null;
 
@@ -221,6 +227,13 @@ export function initCalendarPage(container) {
             </div>
           </div>
           <div class="form-row">
+            <div class="form-group" id="int-hourly-wage-group">
+              <label>時薪 <span class="required">*</span></label>
+              <input type="number" id="int-hourly-wage" min="1" step="1" placeholder="請輸入此日期區間適用的時薪">
+              <div id="int-wage-year-warning" style="color:#dc3545;font-size:14px;font-weight:600;line-height:1.5;margin-top:6px;"></div>
+            </div>
+          </div>
+          <div class="form-row">
             <div class="form-group">
               <label>作息類型 <span class="required">*</span></label>
               <div id="int-scheduleType-buttons" class="weekday-buttons"></div>
@@ -378,6 +391,7 @@ function bindCalendarEvents() {
     selectedIntervalUnitCodes.clear();
     populateScheduleTypeButtonsForInterval(true);
     populateUnitButtonsForInterval(true);
+    updateIntervalYearWarning();
     updateIntervalPreview();
   });
 
@@ -919,6 +933,8 @@ function showIntervalModal(mode) {
   // reset
   containerEl.querySelector('#int-start').value = '';
   containerEl.querySelector('#int-end').value = '';
+  containerEl.querySelector('#int-hourly-wage').value = '';
+  containerEl.querySelector('#int-hourly-wage-group').style.display = mode === 'add' ? '' : 'none';
 
   selectedSourceIdsForDelete.clear();
   selectedIntervalScheduleTypes.clear();
@@ -926,6 +942,7 @@ function showIntervalModal(mode) {
   populateAcademicYearsForInterval();
   populateScheduleTypeButtonsForInterval(true);
   populateUnitButtonsForInterval(true);
+  updateIntervalYearWarning();
   updateIntervalPreview();
 
   modal.style.display = 'flex';
@@ -933,6 +950,16 @@ function showIntervalModal(mode) {
 
 function hideIntervalModal() {
   containerEl.querySelector('#interval-modal').style.display = 'none';
+}
+
+function updateIntervalYearWarning() {
+  const warning = containerEl.querySelector('#int-wage-year-warning');
+  const academicYear = containerEl.querySelector('#int-academicYear').value;
+  const range = getAcademicYearDateRange(academicYear);
+  if (!warning) return;
+  warning.textContent = intervalModalMode === 'add' && range
+    ? `所選學年度的日期必須介於 ${range.start}～${range.end}`
+    : '';
 }
 
 function populateAcademicYearsForInterval() {
@@ -1178,7 +1205,7 @@ function updateIntervalPreview() {
       <div><strong>單位：</strong>${m.unitCode} - ${m.unitName}</div>
       <div><strong>週期類型：</strong>${m.weekdays.replace(/\|/g, '、')}</div>
       <div><strong>開館時間：</strong>${m.startTime}~${m.endTime}</div>
-      <div><strong>時數：</strong>${m.hours}　<strong>時薪：</strong>${m.hourlyWage}</div>
+      <div><strong>時數：</strong>${m.hours}</div>
       <div style="font-size:14px;color:#666">來源設定 ID: ${m.id}</div>
     `;
 
@@ -1214,6 +1241,7 @@ async function handleIntervalConfirm() {
   const ay = containerEl.querySelector('#int-academicYear').value;
   const scheduleTypes = getSelectedIntervalScheduleTypes();
   const unitCodes = getSelectedIntervalUnitCodes();
+  const wageInput = containerEl.querySelector('#int-hourly-wage').value;
 
   const start = normalizeDateInput(startRaw);
   const end = normalizeDateInput(endRaw);
@@ -1224,6 +1252,11 @@ async function handleIntervalConfirm() {
   }
   if (!ay) {
     showToast('請選擇學年度', 'error');
+    return;
+  }
+  const rangeValidation = validateCalendarIntervalRange(start, end, ay);
+  if (!rangeValidation.ok) {
+    showToast(rangeValidation.error, 'error');
     return;
   }
 
@@ -1247,6 +1280,12 @@ async function handleIntervalConfirm() {
   const dates = getDatesInRange(start, end);
 
   if (intervalModalMode === 'add') {
+    const wageValidation = validateIntervalHourlyWage(wageInput);
+    if (!wageValidation.ok) {
+      showToast(wageValidation.error, 'error');
+      return;
+    }
+    const intervalHourlyWage = wageValidation.hourlyWage;
     // 自動建立缺少的 period
     const rowsToAdd = [];
     let skippedHolidayCount = 0;
@@ -1262,19 +1301,13 @@ async function handleIntervalConfirm() {
         const wdList = match.weekdays.split('|');
         if (!wdList.includes(wd)) return;
 
-        rowsToAdd.push({
+        rowsToAdd.push(buildCalendarRowFromHourSetting({
           date: d,
           academicYear: ay,
           weekday: wd,
-          scheduleType: match.scheduleType,
-          unitCode: match.unitCode,
-          unitName: match.unitName,
-          startTime: match.startTime,
-          endTime: match.endTime,
-          hours: match.hours,
-          hourlyWage: match.hourlyWage,
-          sourceHourSettingId: match.id
-        });
+          match,
+          hourlyWage: intervalHourlyWage
+        }));
       });
     });
 

@@ -477,9 +477,9 @@ function _snapshotCollections() {
 
 
 // 初始化：localStorage 模式沿用 seedData；GAS Shell 模式啟動時一次載入 Sheet 到前端 cache。
-import { beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-mutation-hotfix-1';
-import { loadCsvDb, exportCsvDbSnapshot } from './csvDb.js?v=1.6.0-mutation-hotfix-1';
-import { normalizeBudgetRecord, normalizeBudgetUnitCodes } from './budgetGroupUtils.js?v=1.6.0-mutation-hotfix-1';
+import { beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-calendar-wage-hotfix-1';
+import { loadCsvDb, exportCsvDbSnapshot } from './csvDb.js?v=1.6.0-calendar-wage-hotfix-1';
+import { normalizeBudgetRecord, normalizeBudgetUnitCodes } from './budgetGroupUtils.js?v=1.6.0-calendar-wage-hotfix-1';
 import {
   seedBudgets,
   seedUnits,
@@ -487,7 +487,7 @@ import {
   seedCalendarPeriods,
   seedCalendarRows,
   seedCalendarHolidays
-} from './seedData.js?v=1.6.0-mutation-hotfix-1';
+} from './seedData.js?v=1.6.0-calendar-wage-hotfix-1';
 
 export async function initDataStore() {
   _dataMode = _detectDataMode();
@@ -1077,14 +1077,17 @@ export async function saveHourSetting(setting) {
   if (setting.id) {
     const idx = list.findIndex(h => h.id === setting.id);
     if (idx !== -1) {
+      const { hourlyWage: _deprecatedHourlyWage, ...existingWithoutWage } = list[idx];
+      const { hourlyWage: _ignoredHourlyWage, ...settingWithoutWage } = setting;
       newItem = {
-        ...list[idx],
-        ...setting,
+        ...existingWithoutWage,
+        ...settingWithoutWage,
         updatedAt: now
       };
       list[idx] = newItem;
     } else {
-      newItem = { ...setting, createdAt: now, updatedAt: now };
+      const { hourlyWage: _ignoredHourlyWage, ...settingWithoutWage } = setting;
+      newItem = { ...settingWithoutWage, createdAt: now, updatedAt: now };
       list.push(newItem);
     }
   } else {
@@ -1098,7 +1101,6 @@ export async function saveHourSetting(setting) {
       startTime: setting.startTime,
       endTime: setting.endTime,
       hours: Number(setting.hours),
-      hourlyWage: Number(setting.hourlyWage),
       note: setting.note || '',
       createdAt: now,
       updatedAt: now
@@ -1443,7 +1445,7 @@ export async function saveSalaryEntry(entry) {
   const actualAmount =
     hasDirectActualAmount && !isNaN(directActualAmount)
       ? directActualAmount
-      : actualHours * hourlyWage;
+      : (existing ? (Number(existing.actualAmount) || 0) : 0);
 
   let newItem;
 

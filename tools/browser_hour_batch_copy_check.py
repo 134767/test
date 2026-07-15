@@ -79,7 +79,6 @@ def main():
                   startTime: h.startTime,
                   endTime: h.endTime,
                   hours: h.hours,
-                  hourlyWage: h.hourlyWage,
                   weekdays: h.weekdays
                 })),
                 beforeCount: hours.length,
@@ -158,7 +157,6 @@ def main():
                   startTime: h.startTime,
                   endTime: h.endTime,
                   hours: h.hours,
-                  hourlyWage: h.hourlyWage,
                   note: h.note||''
                 }))
               };
@@ -224,7 +222,6 @@ def main():
                 "startTime",
                 "endTime",
                 "hours",
-                "hourlyWage",
                 "note",
             ):
                 if str(cur.get(field) if cur.get(field) is not None else "") != str(
@@ -265,7 +262,6 @@ def main():
                 "startTime",
                 "endTime",
                 "hours",
-                "hourlyWage",
                 "note",
             ):
                 if str(m.get(field) if m.get(field) is not None else "") != str(
@@ -343,7 +339,6 @@ def main():
                 startTime: '01:00',
                 endTime: '02:00',
                 hours: 1,
-                hourlyWage: 100,
                 note: 'invalid',
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString()
@@ -371,7 +366,6 @@ def main():
                 startTime: '10:00',
                 endTime: '11:00',
                 hours: 1,
-                hourlyWage: 196,
                 note: 'partial-ok',
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString()

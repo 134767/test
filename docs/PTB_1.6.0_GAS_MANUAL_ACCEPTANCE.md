@@ -9,14 +9,14 @@
 `GitHub Pages / → 靜態說明頁，不啟動 App`
 
 1. 建立正式 Sheet 的測試複本並另建備份；確認全程未使用正式 Sheet。
-2. 在正確 Apps Script 專案設定 `PTB_SPREADSHEET_ID`（匿名測試 Sheet 複本）、`PTB_GITHUB_PAGES_BASE_URL`、`PTB_APP_VERSION=1.6.0`、`PTB_STATIC_ASSET_VERSION=1.6.0-mutation-hotfix-1`、`PTB_WRITE_MODE=enabled`、`PTB_TEST_MODE=enabled`；不得把 ID 寫入 source 或 log。
-3. 執行 `inspectPtb160Schema`，保存報告；確認 legacy budget group warning。
-4. 本 hotfix 驗收不得執行 migration；先確認測試副本 schema 已由先前受控流程完成。
+2. 在正確 Apps Script 專案設定 `PTB_SPREADSHEET_ID`（匿名測試 Sheet 複本）、`PTB_GITHUB_PAGES_BASE_URL`、`PTB_APP_VERSION=1.6.0`、`PTB_STATIC_ASSET_VERSION=1.6.0-calendar-wage-hotfix-1`、`PTB_WRITE_MODE=enabled`、`PTB_TEST_MODE=enabled`；不得把 ID 寫入 source 或 log。
+3. 執行 `inspectPtb160Schema` 並保存報告；若 `03_hour_settings` 仍含 `hourlyWage`，確認報告為 `migrationRequired: true` 且 deprecated column 為 `hourlyWage`。
+4. 本次 source handoff 不執行 migration。另行核准後，只能在匿名測試 Sheet 複本執行 `migratePtb160Schema`；確認已建立 `03_hour_settings`、`05_calendar_rows` 隱藏備份，所有 calendar rows 均有正時薪，且再次 inspect/verify 通過。不得對正式 Sheet 執行。
 5. 確認 Pages 根頁只顯示靜態說明、`/local.html` 在公開 host 顯示 localhost-only 警告，且 CSS/JS asset HTTP 200；部署僅授權帳號可用的測試 GAS Web App。
 6. 開啟 `/exec`，驗證 bootstrap 十表、版本、loading、錯誤訊息與無 CSV/localStorage 業務資料 fallback。
 7. 驗證 budgets 新增/編輯/重複名稱/單位重疊；驗證時數設定新增、編輯、note、批次新增及部分成功摘要。
-8. 驗證行事曆初始空白、明確查詢、新增作息、跨年度群組範圍刪除及不影響其他群組。
-9. 驗證薪資登記保留使用者輸入的 `actualAmount`（不得以 hours × wage 覆寫）、複合鍵拒絕重複、差額與預估群組 scope、評估方案，以及重整後 Sheet 讀回。
+8. 驗證行事曆初始空白、明確查詢、新增作息、跨年度群組範圍刪除及不影響其他群組；新增區間必須輸入大於 0 的時薪，日期不得超出所選學年度。
+9. 使用同一時數設定分別建立 2025/08–12（190）與 2026/01–07（200）兩段資料；確認 source ID 相同、舊列維持 190、新列為 200。驗證薪資月份顯示混合時薪、保留使用者輸入的 `actualAmount`（不得以 hours × wage 覆寫），並確認當期/過去逐列計算、未來只使用 forecast interval 時薪。
 10. 用未授權帳號確認拒絕；檢查 browser console 與 Apps Script execution log 不含秘密或 stack trace。
 11. 驗收失敗時停用測試 deployment、還原備份，記錄輸入、錯誤 code、execution id 與可重現步驟。
 12. 快速連點每個儲存/刪除按鈕，確認處理期間按鈕停用且只有一次 Apps Script execution。

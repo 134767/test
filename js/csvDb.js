@@ -18,7 +18,7 @@ export const CSV_DB_CONFIG = {
   },
   hourSettings: {
     file: '03_hour_settings.csv',
-    headers: ['id', 'academicYear', 'scheduleType', 'unitCode', 'unitName', 'weekdays', 'startTime', 'endTime', 'hours', 'hourlyWage', 'note', 'createdAt', 'updatedAt']
+    headers: ['id', 'academicYear', 'scheduleType', 'unitCode', 'unitName', 'weekdays', 'startTime', 'endTime', 'hours', 'note', 'createdAt', 'updatedAt']
   },
   calendarPeriods: {
     file: '04_calendar_periods.csv',

@@ -187,7 +187,6 @@ def main():
         # weekdays
         page.locator("#hour-weekdays .weekday-btn").first.click()
         page.fill("#hour-hours", "1")
-        page.fill("#hour-wage", "196")
         page.fill("#hour-note", "scope-new-test")
         page.click("#hour-save-btn")
         page.wait_for_timeout(700)

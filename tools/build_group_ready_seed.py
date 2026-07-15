@@ -132,7 +132,7 @@ for i, row in enumerate(hours):
         row[0], str(row[1]), str(row[2]), nc, nn, str(row[5] or ''),
         str(row[6] or ''), str(row[7] or ''), row[8], row[9], note, row[11] or '', row[12] or ''
     ])
-hour_headers = ['id', 'academicYear', 'scheduleType', 'unitCode', 'unitName', 'weekdays', 'startTime', 'endTime', 'hours', 'hourlyWage', 'note', 'createdAt', 'updatedAt']
+hour_headers = ['id', 'academicYear', 'scheduleType', 'unitCode', 'unitName', 'weekdays', 'startTime', 'endTime', 'hours', 'note', 'createdAt', 'updatedAt']
 
 stype_set = []
 seen = set()

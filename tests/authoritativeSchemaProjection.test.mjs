@@ -22,3 +22,10 @@ for(const key of ['calendarPeriods','calendarRows']){
     assert.deepEqual(authoritative,[reread]);
   });
 }
+
+test('hourSettings authoritative projection drops legacy hourlyWage',()=>{
+  const row={id:'HOURSET_abcdefgh',academicYear:'114',scheduleType:'平日',unitCode:'U1',unitName:'單位',weekdays:'星期一',startTime:'08:00',endTime:'09:00',hours:1,hourlyWage:190,note:'',createdAt:'2026-01-01T00:00:00.000Z',updatedAt:'2026-01-01T00:00:00.000Z'};
+  const projected=gas.projectRecordToSchema_('hourSettings',row);
+  assert.equal(Object.hasOwn(projected,'hourlyWage'),false);
+  assert.deepEqual(Object.keys(projected),gas.tables.hourSettings.headers);
+});

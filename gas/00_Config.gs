@@ -1,10 +1,10 @@
 var PTB_VERSION = '1.6.0';
-var PTB_ASSET_VERSION = '1.6.0-mutation-hotfix-1';
+var PTB_ASSET_VERSION = '1.6.0-calendar-wage-hotfix-1';
 var PTB_PROPERTY_KEYS = Object.freeze({ spreadsheetId:'PTB_SPREADSHEET_ID', githubBaseUrl:'PTB_GITHUB_PAGES_BASE_URL', appVersion:'PTB_APP_VERSION', assetVersion:'PTB_STATIC_ASSET_VERSION', writeMode:'PTB_WRITE_MODE', testMode:'PTB_TEST_MODE' });
 var PTB_TABLES = Object.freeze({
   budgets:{sheet:'01_budgets',headers:['id','academicYear','budgetAmount','note','createdAt','updatedAt','budgetName','unitCodes']},
   units:{sheet:'02_units',headers:['id','unitCode','unitName','colorKey','note','createdAt','updatedAt']},
-  hourSettings:{sheet:'03_hour_settings',headers:['id','academicYear','scheduleType','unitCode','unitName','weekdays','startTime','endTime','hours','hourlyWage','note','createdAt','updatedAt']},
+  hourSettings:{sheet:'03_hour_settings',headers:['id','academicYear','scheduleType','unitCode','unitName','weekdays','startTime','endTime','hours','note','createdAt','updatedAt']},
   calendarPeriods:{sheet:'04_calendar_periods',headers:['id','date','weekday','createdAt']},
   calendarRows:{sheet:'05_calendar_rows',headers:['id','date','academicYear','weekday','scheduleType','unitCode','unitName','startTime','endTime','hours','hourlyWage','sourceHourSettingId','createdAt']},
   calendarHolidays:{sheet:'06_calendar_holidays',headers:['id','date','name','type','note','createdAt','updatedAt']},
