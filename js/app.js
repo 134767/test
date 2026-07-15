@@ -1,18 +1,18 @@
 // js/app.js
 // 應用程式主控：初始化、tab 切換、各頁面載入
 
-import { installGasRuntimeCompatibility, formatGasRuntimeError } from './gasRuntimeCompat.js?v=1.6.0-hour-button-shell-hotfix-3';
-import { initDataStore, getDataMode, exportLocalCsvDbSnapshot, resetLocalDataFromCsvDb, subscribeCollection } from './dataStore.js?v=1.6.0-hour-button-shell-hotfix-3';
-import { installDbFeedback, beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-hour-button-shell-hotfix-3';
-import { AppState, setCurrentTab } from './state.js?v=1.6.0-hour-button-shell-hotfix-3';
-import { initBudgetPage, renderBudgetTable } from './budgetPage.js?v=1.6.0-hour-button-shell-hotfix-3';
-import { initUnitPage, renderUnitTable } from './unitPage.js?v=1.6.0-hour-button-shell-hotfix-3';
-import { initHourSettingPage, renderHourTable } from './hourSettingPage.js?v=1.6.0-hour-button-shell-hotfix-3';
-import { initCalendarPage, renderCalendarTable } from './calendarPage.js?v=1.6.0-hour-button-shell-hotfix-3';
-import { initSalaryEntryPage, renderSalaryEntryPage } from './salaryEntryPage.js?v=1.6.0-hour-button-shell-hotfix-3';
-import { initDifferenceForecastPage, renderDifferenceForecastPage } from './differenceForecastPage.js?v=1.6.0-hour-button-shell-hotfix-3';
-import { installPtb156Enhancements } from './ptb156Enhancements.js?v=1.6.0-hour-button-shell-hotfix-3';
-import { installPtb156cUiSyncPatch } from './ptb156cUiSyncPatch.js?v=1.6.0-hour-button-shell-hotfix-3';
+import { installGasRuntimeCompatibility, formatGasRuntimeError } from './gasRuntimeCompat.js?v=1.6.0-hour-pure-button-hotfix-4';
+import { initDataStore, getDataMode, exportLocalCsvDbSnapshot, resetLocalDataFromCsvDb, subscribeCollection } from './dataStore.js?v=1.6.0-hour-pure-button-hotfix-4';
+import { installDbFeedback, beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-hour-pure-button-hotfix-4';
+import { AppState, setCurrentTab } from './state.js?v=1.6.0-hour-pure-button-hotfix-4';
+import { initBudgetPage, renderBudgetTable } from './budgetPage.js?v=1.6.0-hour-pure-button-hotfix-4';
+import { initUnitPage, renderUnitTable } from './unitPage.js?v=1.6.0-hour-pure-button-hotfix-4';
+import { initHourSettingPage, renderHourTable } from './hourSettingPage.js?v=1.6.0-hour-pure-button-hotfix-4';
+import { initCalendarPage, renderCalendarTable } from './calendarPage.js?v=1.6.0-hour-pure-button-hotfix-4';
+import { initSalaryEntryPage, renderSalaryEntryPage } from './salaryEntryPage.js?v=1.6.0-hour-pure-button-hotfix-4';
+import { initDifferenceForecastPage, renderDifferenceForecastPage } from './differenceForecastPage.js?v=1.6.0-hour-pure-button-hotfix-4';
+import { installPtb156Enhancements } from './ptb156Enhancements.js?v=1.6.0-hour-pure-button-hotfix-4';
+import { installPtb156cUiSyncPatch } from './ptb156cUiSyncPatch.js?v=1.6.0-hour-pure-button-hotfix-4';
 
 let mainContainer = null;
 let tabButtons = {};

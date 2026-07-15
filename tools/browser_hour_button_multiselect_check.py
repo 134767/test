@@ -15,6 +15,7 @@ units = [
     {"id": "U1", "unitCode": "A", "unitName": "甲"},
     {"id": "U2", "unitCode": "B", "unitName": "乙"},
     {"id": "U3", "unitCode": "C", "unitName": "丙"},
+    {"id": "U4", "unitCode": "D", "unitName": "不在群組"},
 ]
 budgets = [{"id": "B1", "academicYear": "114", "budgetName": "測試群組", "unitCodes": ["A", "B", "C"], "budgetAmount": 1}]
 types = [{"id": "S1", "name": "平日"}, {"id": "S2", "name": "假日"}]
@@ -49,13 +50,27 @@ with sync_playwright() as p:
     page.click("#btn-add-hour")
     page.select_option("#hour-academicYear", "114")
     page.select_option("#hour-budget-group", "B1")
-    out["checks"]["native_selects_hidden"] = not page.locator("#hour-scheduleType").is_visible() and not page.locator("#hour-unit").is_visible()
-    out["checks"]["visible_schedule_buttons"] = page.locator("#hour-schedule-type-buttons .hour-choice-btn:visible").count() == 2
-    out["checks"]["visible_unit_buttons"] = page.locator("#hour-unit-buttons .hour-choice-btn:visible").count() == 3
+    out["checks"]["native_selects_absent"] = page.locator("select#hour-scheduleType, select#hour-unit").count() == 0
+    out["checks"]["pure_button_groups"] = page.locator("div#hour-scheduleType.weekday-buttons").count() == 1 and page.locator("div#hour-unit.weekday-buttons").count() == 1
+    out["checks"]["visible_schedule_buttons"] = page.locator("#hour-scheduleType button.weekday-btn:visible").count() == 2
+    out["checks"]["visible_unit_buttons"] = page.locator("#hour-unit button.weekday-btn:visible").count() == 3
+    out["checks"]["unit_outside_budget_absent"] = page.locator("#hour-unit button[data-value='D']").count() == 0
+    toggle = page.locator("#hour-scheduleType button[data-value='平日']")
+    toggle.click()
+    first_toggle = toggle.evaluate("el => el.classList.contains('active') && el.getAttribute('aria-pressed') === 'true'")
+    toggle.click()
+    second_toggle = toggle.evaluate("el => !el.classList.contains('active') && el.getAttribute('aria-pressed') === 'false'")
+    out["checks"]["schedule_toggle_active_aria"] = first_toggle and second_toggle
+    toggle.focus()
+    page.keyboard.press("Space")
+    keyboard_on = toggle.evaluate("el => el.classList.contains('active') && el.getAttribute('aria-pressed') === 'true'")
+    page.keyboard.press("Enter")
+    keyboard_off = toggle.evaluate("el => !el.classList.contains('active') && el.getAttribute('aria-pressed') === 'false'")
+    out["checks"]["schedule_keyboard_space_enter"] = keyboard_on and keyboard_off
     for value in ("平日", "假日"):
-        click_choice(page, "#hour-schedule-type-buttons", value)
+        click_choice(page, "#hour-scheduleType", value)
     for value in ("A", "B", "C"):
-        click_choice(page, "#hour-unit-buttons", value)
+        click_choice(page, "#hour-unit", value)
     click_choice(page, "#hour-weekdays", "星期一")
     click_choice(page, "#hour-weekdays", "星期二")
     page.fill("#hour-startTime", "08:00")
@@ -74,10 +89,10 @@ with sync_playwright() as p:
     original = {"id": "H_ORIGINAL", "academicYear": "114", "scheduleType": "平日", "unitCode": "A", "unitName": "甲", "weekdays": "星期一", "startTime": "08:00", "endTime": "17:00", "hours": 8, "note": "old", "createdAt": "2026-01-01T00:00:00.000Z"}
     set_fixture(page, [original])
     page.click("button.btn-edit[data-id='H_ORIGINAL']")
-    active = page.eval_on_selector_all(".hour-choice-btn.active", "els => els.map(el => el.dataset.value)")
+    active = page.eval_on_selector_all("#hour-scheduleType .hour-choice-btn.active, #hour-unit .hour-choice-btn.active", "els => els.map(el => el.dataset.value)")
     out["checks"]["edit_original_buttons_active"] = "平日" in active and "A" in active
-    click_choice(page, "#hour-schedule-type-buttons", "假日")
-    click_choice(page, "#hour-unit-buttons", "B")
+    click_choice(page, "#hour-scheduleType", "假日")
+    click_choice(page, "#hour-unit", "B")
     page.fill("#hour-note", "expanded")
     page.click("#hour-save-btn")
     page.wait_for_function("document.querySelector('#hour-modal').style.display === 'none'")
@@ -94,8 +109,8 @@ with sync_playwright() as p:
     set_fixture(page, [original], calendar)
     before = page.evaluate("() => ({h:localStorage.getItem('workStudy_hourSettings'),c:localStorage.getItem('workStudy_calendarRows')})")
     page.click("button.btn-edit[data-id='H_ORIGINAL']")
-    click_choice(page, "#hour-schedule-type-buttons", "平日")
-    click_choice(page, "#hour-schedule-type-buttons", "假日")
+    click_choice(page, "#hour-scheduleType", "平日")
+    click_choice(page, "#hour-scheduleType", "假日")
     page.click("#hour-save-btn")
     page.wait_for_timeout(300)
     after = page.evaluate("() => ({h:localStorage.getItem('workStudy_hourSettings'),c:localStorage.getItem('workStudy_calendarRows'),modal:document.querySelector('#hour-modal').style.display,toast:document.querySelector('#toast-container')?.textContent||''})")
@@ -106,7 +121,7 @@ with sync_playwright() as p:
     page.evaluate("""async () => {
       const loading=document.createElement('p');loading.id='gas-loading';loading.textContent='資料載入中…';
       document.querySelector('#main-content').prepend(loading);
-      const app=await import('/js/app.js?v=1.6.0-hour-button-shell-hotfix-3');await app.bootstrap();
+      const app=await import('/js/app.js?v=1.6.0-hour-pure-button-hotfix-4');await app.bootstrap();
     }""")
     out["checks"]["gas_loading_removed"] = page.locator("#gas-loading").count() == 0
     out["checks"]["no_duplicate_tabs_pages"] = page.locator("#tab-bar .tab-btn").count() == 6 and page.locator("#main-content .page-container").count() == 6
@@ -118,7 +133,7 @@ with sync_playwright() as p:
       let failure;
       const runner={withSuccessHandler(){return runner},withFailureHandler(fn){failure=fn;return runner},runServerFunction(){failure(new Error('forced bootstrap failure'))}};
       window.google={script:{run:runner}};
-      const app=await import('/js/app.js?v=1.6.0-hour-button-shell-hotfix-3');
+      const app=await import('/js/app.js?v=1.6.0-hour-pure-button-hotfix-4');
       await app.bootstrap();
     }""")
     out["checks"]["bootstrap_failure_visible"] = failure_page.locator("#main-content [role='alert'] h2", has_text="資料庫載入失敗").count() == 1

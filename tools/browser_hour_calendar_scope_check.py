@@ -164,21 +164,12 @@ def main():
         real = next(o for o in bg_opts if o["v"])
         page.select_option("#hour-budget-group", value=real["v"])
         page.wait_for_timeout(350)
-        # 正式架構使用可見按鈕，原生 select 僅保存選取狀態。
-        unit_btns = page.locator("#hour-unit-buttons .hour-choice-btn")
+        # 正式架構直接使用可見按鈕，不建立相容性 select。
+        unit_btns = page.locator("#hour-unit .hour-choice-btn")
         unit_btn_count = unit_btns.count()
-        unit_opts = page.eval_on_selector_all(
-            "#hour-unit option", "els => els.map(e => e.value).filter(Boolean)"
-        )
-        OUT["checks"]["hour_actual_units_filtered"] = unit_btn_count > 0 or len(unit_opts) > 0
-        if unit_btn_count > 0:
-            unit_btns.first.click()
-        elif unit_opts:
-            page.locator("#hour-unit").evaluate(
-                "(el, v) => { el.value = v; el.dispatchEvent(new Event('change', {bubbles:true})); }",
-                unit_opts[0],
-            )
-        st_btns = page.locator("#hour-schedule-type-buttons .hour-choice-btn")
+        OUT["checks"]["hour_actual_units_filtered"] = unit_btn_count > 0
+        unit_btns.first.click()
+        st_btns = page.locator("#hour-scheduleType .hour-choice-btn")
         st_btns.first.click()
         # weekdays
         page.locator("#hour-weekdays .weekday-btn").first.click()
@@ -197,10 +188,9 @@ def main():
         page.locator("#hour-tbody .btn-edit").first.click()
         page.wait_for_timeout(500)
         bg_val = page.locator("#hour-budget-group").input_value()
-        unit_val = page.locator("#hour-unit").input_value()
-        unit_active = page.locator("#hour-unit-buttons .hour-choice-btn.active").count()
+        unit_active = page.locator("#hour-unit .hour-choice-btn.active").count()
         OUT["checks"]["hour_edit_budget_prefilled"] = bool(bg_val)
-        OUT["checks"]["hour_edit_unit_prefilled"] = bool(unit_val) or unit_active > 0
+        OUT["checks"]["hour_edit_unit_prefilled"] = unit_active > 0
         page.click("#hour-cancel-btn")
         page.wait_for_timeout(200)
 

@@ -477,9 +477,9 @@ function _snapshotCollections() {
 
 
 // 初始化：localStorage 模式沿用 seedData；GAS Shell 模式啟動時一次載入 Sheet 到前端 cache。
-import { beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-hour-button-shell-hotfix-3';
-import { loadCsvDb, exportCsvDbSnapshot } from './csvDb.js?v=1.6.0-hour-button-shell-hotfix-3';
-import { normalizeBudgetRecord, normalizeBudgetUnitCodes } from './budgetGroupUtils.js?v=1.6.0-hour-button-shell-hotfix-3';
+import { beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-hour-pure-button-hotfix-4';
+import { loadCsvDb, exportCsvDbSnapshot } from './csvDb.js?v=1.6.0-hour-pure-button-hotfix-4';
+import { normalizeBudgetRecord, normalizeBudgetUnitCodes } from './budgetGroupUtils.js?v=1.6.0-hour-pure-button-hotfix-4';
 import {
   seedBudgets,
   seedUnits,
@@ -487,7 +487,7 @@ import {
   seedCalendarPeriods,
   seedCalendarRows,
   seedCalendarHolidays
-} from './seedData.js?v=1.6.0-hour-button-shell-hotfix-3';
+} from './seedData.js?v=1.6.0-hour-pure-button-hotfix-4';
 
 export async function initDataStore() {
   _dataMode = _detectDataMode();
