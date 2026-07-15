@@ -12,9 +12,10 @@ function setFieldLabel(root, selector, text) {
     return;
   }
 
+  const desiredText = `${text} `;
   const directText = Array.from(label.childNodes).find(node => node.nodeType === Node.TEXT_NODE);
-  if (directText) directText.nodeValue = `${text} `;
-  else label.insertBefore(document.createTextNode(`${text} `), required);
+  if (directText && directText.nodeValue !== desiredText) directText.nodeValue = desiredText;
+  else if (!directText) label.insertBefore(document.createTextNode(desiredText), required);
 }
 
 function replaceBudgetTerminology(root) {
