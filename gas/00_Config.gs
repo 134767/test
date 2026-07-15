@@ -1,6 +1,6 @@
 var PTB_VERSION = '1.6.0';
 var PTB_ASSET_VERSION = '1.6.0-calendar-wage-hotfix-1';
-var PTB_PROPERTY_KEYS = Object.freeze({ spreadsheetId:'PTB_SPREADSHEET_ID', githubBaseUrl:'PTB_GITHUB_PAGES_BASE_URL', appVersion:'PTB_APP_VERSION', assetVersion:'PTB_STATIC_ASSET_VERSION', writeMode:'PTB_WRITE_MODE', testMode:'PTB_TEST_MODE' });
+var PTB_PROPERTY_KEYS = Object.freeze({ spreadsheetId:'PTB_SPREADSHEET_ID', githubBaseUrl:'PTB_GITHUB_PAGES_BASE_URL', appVersion:'PTB_APP_VERSION', assetVersion:'PTB_STATIC_ASSET_VERSION', writeMode:'PTB_WRITE_MODE', testMode:'PTB_TEST_MODE', schemaMigrationApproval:'PTB_SCHEMA_MIGRATION_APPROVAL' });
 var PTB_TABLES = Object.freeze({
   budgets:{sheet:'01_budgets',headers:['id','academicYear','budgetAmount','note','createdAt','updatedAt','budgetName','unitCodes']},
   units:{sheet:'02_units',headers:['id','unitCode','unitName','colorKey','note','createdAt','updatedAt']},
@@ -20,7 +20,7 @@ var PTB_NUMERIC_FIELDS = Object.freeze({budgetAmount:true,hours:true,hourlyWage:
 function createRequestContext_(){return {config:null,spreadsheet:null,sheets:{},headers:{},collections:{},timings:{},startedAt:Date.now()};}
 function getAppConfig_(ctx){
   if(ctx&&ctx.config)return ctx.config;
-  var p=PropertiesService.getScriptProperties(),c={spreadsheetId:(p.getProperty(PTB_PROPERTY_KEYS.spreadsheetId)||'').trim(),githubPagesBaseUrl:(p.getProperty(PTB_PROPERTY_KEYS.githubBaseUrl)||'').trim().replace(/\/+$/,''),appVersion:(p.getProperty(PTB_PROPERTY_KEYS.appVersion)||PTB_VERSION).trim(),staticAssetVersion:(p.getProperty(PTB_PROPERTY_KEYS.assetVersion)||PTB_ASSET_VERSION).trim(),writeMode:(p.getProperty(PTB_PROPERTY_KEYS.writeMode)||'enabled').trim(),testMode:(p.getProperty(PTB_PROPERTY_KEYS.testMode)||'disabled').trim(),allowLocalFallback:false};
+  var p=PropertiesService.getScriptProperties(),c={spreadsheetId:(p.getProperty(PTB_PROPERTY_KEYS.spreadsheetId)||'').trim(),githubPagesBaseUrl:(p.getProperty(PTB_PROPERTY_KEYS.githubBaseUrl)||'').trim().replace(/\/+$/,''),appVersion:(p.getProperty(PTB_PROPERTY_KEYS.appVersion)||PTB_VERSION).trim(),staticAssetVersion:(p.getProperty(PTB_PROPERTY_KEYS.assetVersion)||PTB_ASSET_VERSION).trim(),writeMode:(p.getProperty(PTB_PROPERTY_KEYS.writeMode)||'enabled').trim(),testMode:(p.getProperty(PTB_PROPERTY_KEYS.testMode)||'disabled').trim(),schemaMigrationApproval:(p.getProperty(PTB_PROPERTY_KEYS.schemaMigrationApproval)||'disabled').trim(),allowLocalFallback:false};
   if(ctx)ctx.config=c;return c;
 }
 function requireSpreadsheetId_(ctx){var id=getAppConfig_(ctx).spreadsheetId;if(!id)throw ptbError_('SHEET_NOT_CONFIGURED','尚未設定 PTB_SPREADSHEET_ID');return id;}

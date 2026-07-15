@@ -28,3 +28,32 @@
 17. 依序執行 `gas/90_TestHarness.gs` 的 create/update/delete、salary duplicate 與 batch harness；保存 Apps Script execution evidence。未實際執行前狀態必須維持 `real_sheet_roundtrip: NOT_RUN`。
 
 本 commit 未執行 migration、未寫入正式 Sheet、未建立或更新 production deployment。GAS deployment version 8 不包含本輪程式，直到另行部署。
+
+## Anonymous Sheet schema migration 安全流程（目前未執行）
+
+此流程僅供已核准的匿名測試 Sheet。不得用於正式 Sheet，也不得在 source handoff、browser gate 或一般驗收期間執行。
+
+```yaml
+phase_1:
+  action: planPtb160SchemaMigration
+  write: false
+
+phase_2:
+  action: migratePtb160Schema(planToken)
+  requirements:
+    - PTB_TEST_MODE=enabled
+    - PTB_WRITE_MODE=enabled
+    - PTB_SCHEMA_MIGRATION_APPROVAL=ANONYMOUS_TEST_ONLY
+
+phase_3:
+  action: verifyPtb160Schema
+  write: false
+
+current_status:
+  anonymous_sheet_migration: NOT_RUN
+  official_sheet_migration: NOT_RUN
+```
+
+Phase 1 的 plan 必須先人工確認兩張來源表的 headers/row counts、待補值與 unresolved 數量、既有正值時薪保留數，以及 SHA-256 `planToken`。若有 unresolved rows，不得進入 Phase 2。Phase 2 只接受同一份目前資料計算出的 token；資料有任何變動都必須重新產生 plan。執行前會先建立兩張帶 timestamp 與 UUID suffix 的隱藏備份，寫入後會驗證 schema、row IDs、source IDs、全部有效時薪、既有正值時薪、Salary 與其餘資料表不變；失敗時自動還原兩張表。
+
+證據不得包含 Spreadsheet ID。受控測試完成並保存不含敏感資訊的證據後，應立即將 `PTB_SCHEMA_MIGRATION_APPROVAL` 重設為 `disabled`。本文件只描述流程，未修改任何 Script Properties，亦未執行 plan、migration、verify、Sheet round-trip 或 deployment。
