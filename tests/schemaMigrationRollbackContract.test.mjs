@@ -13,7 +13,8 @@ test('14 stale plan rejection occurs before backup or write',()=>{
   assert.ok(migrate.indexOf('MIGRATION_PLAN_STALE')<migrate.indexOf('rewriteSheetSchema_'));
 });
 test('15 unresolved rows block all writes and already-migrated returns writesPerformed false',()=>{
-  assert.ok(migrate.indexOf('unresolvedRows.length')<migrate.indexOf('backupMigrationSheet_'));
+  assert.ok(migrate.indexOf('plan.blockers.length')<migrate.indexOf('backupMigrationSheet_'));
+  assert.ok(migrate.indexOf('plan.blockers.length')<migrate.indexOf('alreadyMigrated:true'));
   assert.match(migrate,/alreadyMigrated:true,writesPerformed:false/);
 });
 test('16 both timestamp-UUID backups are created before either schema rewrite',()=>{
@@ -24,10 +25,10 @@ test('16 both timestamp-UUID backups are created before either schema rewrite',(
 });
 test('17 post-migration verification enforces row, id, source, wage, salary, and other-table invariants',()=>{
   const sandbox={};vm.createContext(sandbox);vm.runInContext(source,sandbox);
-  const hour={headers:['id'],values:[['h1']]},calendar={headers:['id','sourceHourSettingId','hourlyWage'],values:[['c1','h1',190]]};
+  const hour={headers:['id','academicYear','scheduleType','unitCode'],values:[['h1','114','平日','U1']]},calendar={headers:['id','sourceHourSettingId','academicYear','scheduleType','unitCode','hourlyWage'],values:[['c1','h1','114','平日','U1',190]]};
   const pass=sandbox.verifyMigrationData_(hour,calendar,hour,calendar,{salaryEntries:'a',units:'b'},{salaryEntries:'a',units:'b'},{status:'PASS'});
   assert.equal(sandbox.migrationVerificationPassed_(pass),true);
-  const changed={headers:calendar.headers,values:[['c1','h1',200]]};assert.equal(sandbox.migrationVerificationPassed_(sandbox.verifyMigrationData_(hour,calendar,hour,changed,{salaryEntries:'a'},{salaryEntries:'a'},{status:'PASS'})),false);
+  const changed={headers:calendar.headers,values:[['c1','h1','114','平日','U2',200]]};assert.equal(sandbox.migrationVerificationPassed_(sandbox.verifyMigrationData_(hour,calendar,hour,changed,{salaryEntries:'a'},{salaryEntries:'a'},{status:'PASS'})),false);
 });
 test('18 any post-backup failure restores both sheets with distinct rollback outcome codes',()=>{
   const rollback=source.slice(source.indexOf('function rollbackMigration_'),source.indexOf('function migratePtb160Schema'));

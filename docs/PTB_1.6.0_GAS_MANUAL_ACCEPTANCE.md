@@ -11,7 +11,7 @@
 1. 建立正式 Sheet 的測試複本並另建備份；確認全程未使用正式 Sheet。
 2. 在正確 Apps Script 專案設定 `PTB_SPREADSHEET_ID`（匿名測試 Sheet 複本）、`PTB_GITHUB_PAGES_BASE_URL`、`PTB_APP_VERSION=1.6.0`、`PTB_STATIC_ASSET_VERSION=1.6.0-calendar-wage-hotfix-1`、`PTB_WRITE_MODE=enabled`、`PTB_TEST_MODE=enabled`；不得把 ID 寫入 source 或 log。
 3. 執行 `inspectPtb160Schema` 並保存報告；若 `03_hour_settings` 仍含 `hourlyWage`，確認報告為 `migrationRequired: true` 且 deprecated column 為 `hourlyWage`。
-4. 本次 source handoff 不執行 migration。另行核准後，只能在匿名測試 Sheet 複本執行 `migratePtb160Schema`；確認已建立 `03_hour_settings`、`05_calendar_rows` 隱藏備份，所有 calendar rows 均有正時薪，且再次 inspect/verify 通過。不得對正式 Sheet 執行。
+4. 本次 source handoff 不執行 migration。另行核准後，只能在匿名測試 Sheet 複本執行 `migratePtb160Schema`；plan 必須先確認 Calendar source ID 存在且唯一，並與來源 Hour Setting 的 academic year、unit code、schedule type 一致。已有正時薪也不得略過此 gate；任何 blocker 都必須在 no-op return、備份及寫入前拒絕，且不得自動修復來源關係。通過後才確認已建立 `03_hour_settings`、`05_calendar_rows` 隱藏備份，所有 calendar rows 均有正時薪，且再次 inspect/verify 通過。不得對正式 Sheet 執行。
 5. 確認 Pages 根頁只顯示靜態說明、`/local.html` 在公開 host 顯示 localhost-only 警告，且 CSS/JS asset HTTP 200；部署僅授權帳號可用的測試 GAS Web App。
 6. 開啟 `/exec`，驗證 bootstrap 十表、版本、loading、錯誤訊息與無 CSV/localStorage 業務資料 fallback。
 7. 驗證 budgets 新增/編輯/重複名稱/單位重疊；驗證時數設定新增、編輯、note、批次新增及部分成功摘要。
@@ -54,6 +54,8 @@ current_status:
   official_sheet_migration: NOT_RUN
 ```
 
-Phase 1 的 plan 必須先人工確認兩張來源表的 headers/row counts、待補值與 unresolved 數量、既有正值時薪保留數，以及 SHA-256 `planToken`。若有 unresolved rows，不得進入 Phase 2。Phase 2 只接受同一份目前資料計算出的 token；資料有任何變動都必須重新產生 plan。執行前會先建立兩張帶 timestamp 與 UUID suffix 的隱藏備份，寫入後會驗證 schema、row IDs、source IDs、全部有效時薪、既有正值時薪、Salary 與其餘資料表不變；失敗時自動還原兩張表。
+Phase 1 的 plan 必須先人工確認兩張來源表的 headers/row counts、待補值與 unresolved 數量、既有正值時薪保留數、Calendar source integrity，以及 SHA-256 `planToken`。若有 unresolved rows 或 source issue，不得進入 Phase 2；issue 只可保存 row number、source Hour Setting ID 與 reason。Phase 2 只接受同一份目前資料計算出的 token；資料有任何變動都必須重新產生 plan。執行前會先拒絕所有 blocker，確認 schema no-op 也不能繞過，再建立兩張帶 timestamp 與 UUID suffix 的隱藏備份。寫入後會重新檢查 source integrity，並驗證 schema、row IDs、source IDs、全部有效時薪、既有正值時薪、Salary 與其餘資料表不變；失敗時自動還原兩張表。
+
+目前匿名候選 XLSX 的本機唯讀 regression 有 19 筆 `source_unit_code_mismatch`，維持 `REJECTED`。Google sandbox、migration、real Sheet round-trip 與 deployment 均為 `NOT_RUN`。
 
 證據不得包含 Spreadsheet ID。受控測試完成並保存不含敏感資訊的證據後，應立即將 `PTB_SCHEMA_MIGRATION_APPROVAL` 重設為 `disabled`。本文件只描述流程，未修改任何 Script Properties，亦未執行 plan、migration、verify、Sheet round-trip 或 deployment。

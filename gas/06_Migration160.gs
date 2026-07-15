@@ -43,9 +43,34 @@ function migrationPlanToken_(hourRaw,calendarRaw){
   return sha256Hex_({hourSettings:{headers:hourRaw.headers,values:hourRaw.values},calendarRows:{headers:calendarRaw.headers,values:calendarRaw.values},targetHeaders:{hourSettings:PTB_TABLES.hourSettings.headers,calendarRows:PTB_TABLES.calendarRows.headers}});
 }
 
+function analyzeCalendarSourceIntegrity_(hourRaw,calendarRaw){
+  var hourRequired=['id','academicYear','scheduleType','unitCode'],calendarRequired=['sourceHourSettingId','academicYear','scheduleType','unitCode'],blockers=[],issues=[],reasonCounts={},hourIndexes={},calendarIndexes={};
+  hourRequired.forEach(function(name){hourIndexes[name]=(hourRaw.headers||[]).indexOf(name);if(hourIndexes[name]<0)blockers.push('03_hour_settings 缺少來源完整性欄位：'+name);});
+  calendarRequired.forEach(function(name){calendarIndexes[name]=(calendarRaw.headers||[]).indexOf(name);if(calendarIndexes[name]<0)blockers.push('05_calendar_rows 缺少來源完整性欄位：'+name);});
+  if(blockers.length)return {valid:false,issueCount:0,issues:[],reasonCounts:{},blockers:blockers};
+  var hourRowsById={},blankHourIds=0,duplicateHourIds=0;
+  (hourRaw.values||[]).forEach(function(row){var id=String(row[hourIndexes.id]===undefined||row[hourIndexes.id]===null?'':row[hourIndexes.id]);if(!id){blankHourIds++;return;}if(!hourRowsById[id])hourRowsById[id]=[];hourRowsById[id].push(row);});
+  Object.keys(hourRowsById).forEach(function(id){if(hourRowsById[id].length>1)duplicateHourIds++;});
+  if(blankHourIds)blockers.push('03_hour_settings 存在空白 id：'+blankHourIds);
+  if(duplicateHourIds)blockers.push('03_hour_settings 存在重複 id：'+duplicateHourIds);
+  (calendarRaw.values||[]).forEach(function(row,index){
+    var sourceId=String(row[calendarIndexes.sourceHourSettingId]===undefined||row[calendarIndexes.sourceHourSettingId]===null?'':row[calendarIndexes.sourceHourSettingId]),sources=hourRowsById[sourceId]||[],reason='';
+    if(!sourceId)reason='missing_source_hour_setting_id';
+    else if(!sources.length)reason='source_hour_setting_not_found';
+    else if(sources.length>1)reason='duplicate_source_hour_setting_id';
+    else if(String(row[calendarIndexes.academicYear]||'')!==String(sources[0][hourIndexes.academicYear]||''))reason='source_academic_year_mismatch';
+    else if(String(row[calendarIndexes.unitCode]||'')!==String(sources[0][hourIndexes.unitCode]||''))reason='source_unit_code_mismatch';
+    else if(String(row[calendarIndexes.scheduleType]||'')!==String(sources[0][hourIndexes.scheduleType]||''))reason='source_schedule_type_mismatch';
+    if(reason){issues.push({rowNumber:index+2,sourceHourSettingId:sourceId,reason:reason});reasonCounts[reason]=(reasonCounts[reason]||0)+1;}
+  });
+  if(issues.length)blockers.push('存在 Calendar source 關聯錯誤：'+issues.length);
+  return {valid:blockers.length===0,issueCount:issues.length,issues:issues,reasonCounts:reasonCounts,blockers:blockers};
+}
+
 function analyzePtb160Migration_(hourRawInput,calendarRawInput){
   var hourRaw=cloneRawSheetData_(hourRawInput),calendarRaw=cloneRawSheetData_(calendarRawInput),hourTarget=PTB_TABLES.hourSettings.headers.slice(),calendarTarget=PTB_TABLES.calendarRows.headers.slice(),legacyWageIndex=hourRaw.headers.indexOf('hourlyWage'),hourIdIndex=hourRaw.headers.indexOf('id'),sourceIndex=calendarRaw.headers.indexOf('sourceHourSettingId'),calendarWageIndex=calendarRaw.headers.indexOf('hourlyWage'),warnings=[],blockers=[];
-  var migrationRequired=!sameJson_(hourRaw.headers,hourTarget)||!sameJson_(calendarRaw.headers,calendarTarget),legacyWages={};
+  var migrationRequired=!sameJson_(hourRaw.headers,hourTarget)||!sameJson_(calendarRaw.headers,calendarTarget),legacyWages={},sourceIntegrity=analyzeCalendarSourceIntegrity_(hourRawInput,calendarRawInput);
+  blockers=blockers.concat(sourceIntegrity.blockers);
   if(legacyWageIndex>=0)warnings.push('03_hour_settings.hourlyWage 為已棄用欄位');
   if(hourIdIndex<0)blockers.push('03_hour_settings 缺少 id');
   if(sourceIndex<0)blockers.push('05_calendar_rows 缺少 sourceHourSettingId');
@@ -62,7 +87,7 @@ function analyzePtb160Migration_(hourRawInput,calendarRawInput){
     unresolvedRows.push({rowNumber:index+2,sourceHourSettingId:sourceId,reason:reason});
   });
   if(unresolvedRows.length)blockers.push('存在無法補值的 calendar rows：'+unresolvedRows.length);
-  var safePlan={ok:blockers.length===0,migrationRequired:migrationRequired,hourSettings:{currentHeaders:hourRawInput.headers.slice(),targetHeaders:hourTarget,deprecatedHourlyWageDetected:legacyWageIndex>=0,rowCount:hourRawInput.values.length},calendarRows:{currentHeaders:calendarRawInput.headers.slice(),targetHeaders:calendarTarget,rowCount:calendarRawInput.values.length,positiveWageRows:positiveWageRows,backfillRequiredRows:backfillRequiredRows,unresolvedRows:unresolvedRows,preservedPositiveRows:preservedPositiveRows},planToken:migrationPlanToken_(hourRawInput,calendarRawInput),warnings:warnings,blockers:blockers};
+  var safePlan={ok:blockers.length===0,migrationRequired:migrationRequired,hourSettings:{currentHeaders:hourRawInput.headers.slice(),targetHeaders:hourTarget,deprecatedHourlyWageDetected:legacyWageIndex>=0,rowCount:hourRawInput.values.length},calendarRows:{currentHeaders:calendarRawInput.headers.slice(),targetHeaders:calendarTarget,rowCount:calendarRawInput.values.length,positiveWageRows:positiveWageRows,backfillRequiredRows:backfillRequiredRows,unresolvedRows:unresolvedRows,preservedPositiveRows:preservedPositiveRows},calendarSourceIntegrity:{valid:sourceIntegrity.valid,issueCount:sourceIntegrity.issueCount,issues:sourceIntegrity.issues,reasonCounts:sourceIntegrity.reasonCounts},planToken:migrationPlanToken_(hourRawInput,calendarRawInput),warnings:warnings,blockers:blockers};
   return {plan:safePlan,hourRaw:hourRaw,calendarPrepared:calendarRaw};
 }
 
@@ -118,11 +143,11 @@ function positiveWageMap_(raw){
 function verifyMigrationData_(beforeHour,beforeCalendar,afterHour,afterCalendar,beforeOther,afterOther,schemaResult){
   var beforePositive=positiveWageMap_(beforeCalendar),afterPositive=positiveWageMap_(afterCalendar),positivePreserved=Object.keys(beforePositive).every(function(id){return afterPositive[id]===beforePositive[id];});
   var afterWageIndex=afterCalendar.headers.indexOf('hourlyWage'),allCalendarWagesPositive=afterWageIndex>=0&&afterCalendar.values.every(function(row){var wage=Number(row[afterWageIndex]);return isFinite(wage)&&wage>0;});
-  var otherTablesUnchanged=sameJson_(beforeOther,afterOther),salaryEntriesUnchanged=beforeOther.salaryEntries===afterOther.salaryEntries;
-  return {schemaVerify:schemaResult&&schemaResult.status==='PASS'?'PASS':'FAIL',calendarRowCountUnchanged:beforeCalendar.values.length===afterCalendar.values.length,calendarRowIdsUnchanged:sameJson_(columnValues_(beforeCalendar,'id'),columnValues_(afterCalendar,'id')),sourceIdsUnchanged:sameJson_(columnValues_(beforeCalendar,'sourceHourSettingId'),columnValues_(afterCalendar,'sourceHourSettingId')),positiveWagesPreserved:positivePreserved,allCalendarWagesPositive:allCalendarWagesPositive,hourSettingRowCountUnchanged:beforeHour.values.length===afterHour.values.length,salaryEntriesUnchanged:salaryEntriesUnchanged,otherTablesUnchanged:otherTablesUnchanged};
+  var otherTablesUnchanged=sameJson_(beforeOther,afterOther),salaryEntriesUnchanged=beforeOther.salaryEntries===afterOther.salaryEntries,sourceIntegrity=analyzeCalendarSourceIntegrity_(afterHour,afterCalendar);
+  return {schemaVerify:schemaResult&&schemaResult.status==='PASS'?'PASS':'FAIL',calendarRowCountUnchanged:beforeCalendar.values.length===afterCalendar.values.length,calendarRowIdsUnchanged:sameJson_(columnValues_(beforeCalendar,'id'),columnValues_(afterCalendar,'id')),sourceIdsUnchanged:sameJson_(columnValues_(beforeCalendar,'sourceHourSettingId'),columnValues_(afterCalendar,'sourceHourSettingId')),calendarSourceIntegrityValid:sourceIntegrity.valid,calendarSourceIntegrityIssueCount:sourceIntegrity.issueCount,positiveWagesPreserved:positivePreserved,allCalendarWagesPositive:allCalendarWagesPositive,hourSettingRowCountUnchanged:beforeHour.values.length===afterHour.values.length,salaryEntriesUnchanged:salaryEntriesUnchanged,otherTablesUnchanged:otherTablesUnchanged};
 }
 
-function migrationVerificationPassed_(verification){return verification.schemaVerify==='PASS'&&verification.calendarRowCountUnchanged&&verification.calendarRowIdsUnchanged&&verification.sourceIdsUnchanged&&verification.positiveWagesPreserved&&verification.allCalendarWagesPositive&&verification.hourSettingRowCountUnchanged&&verification.salaryEntriesUnchanged&&verification.otherTablesUnchanged;}
+function migrationVerificationPassed_(verification){return verification.schemaVerify==='PASS'&&verification.calendarRowCountUnchanged&&verification.calendarRowIdsUnchanged&&verification.sourceIdsUnchanged&&verification.calendarSourceIntegrityValid&&verification.positiveWagesPreserved&&verification.allCalendarWagesPositive&&verification.hourSettingRowCountUnchanged&&verification.salaryEntriesUnchanged&&verification.otherTablesUnchanged;}
 
 function rollbackMigration_(hourSheet,calendarSheet,hourBackup,calendarBackup,beforeHour,beforeCalendar,originalError){
   var hourRestored=false,calendarRestored=false,rollbackErrors=[];
@@ -140,9 +165,8 @@ function migratePtb160Schema(expectedPlanToken){
   return withWriteLock_(ctx,function(){
     var analysis=buildPtb160SchemaMigrationPlan_(ctx),plan=analysis.plan,expected=String(expectedPlanToken||'').trim();
     if(!expected||expected!==plan.planToken)throw ptbError_('MIGRATION_PLAN_STALE','migration plan 已失效，請重新建立唯讀 plan');
-    if(plan.calendarRows.unresolvedRows.length)throw ptbError_('MIGRATION_BLOCKED','部分 calendar rows 無法取得有效時薪',{unresolvedRows:plan.calendarRows.unresolvedRows});
+    if(plan.blockers.length)throw ptbError_('MIGRATION_BLOCKED','schema migration plan 含有阻擋項目',{blockers:plan.blockers,unresolvedRows:plan.calendarRows.unresolvedRows,calendarSourceIntegrity:plan.calendarSourceIntegrity});
     if(!plan.migrationRequired)return {ok:true,alreadyMigrated:true,writesPerformed:false,planToken:plan.planToken,backupSheets:{},changes:{calendarRowsBackfilled:0,calendarRowsPositivePreserved:plan.calendarRows.preservedPositiveRows,hourSettingsDeprecatedColumnRemoved:false}};
-    if(plan.blockers.length)throw ptbError_('MIGRATION_BLOCKED','schema migration plan 含有阻擋項目',{blockers:plan.blockers});
     var ss=getSpreadsheet_(ctx),hourSheet=ss.getSheetByName(PTB_TABLES.hourSettings.sheet),calendarSheet=ss.getSheetByName(PTB_TABLES.calendarRows.sheet),beforeHour=rawSheetData_(hourSheet),beforeCalendar=rawSheetData_(calendarSheet),beforeOther=captureOtherTableDigests_(ss),suffix=migrationBackupSuffix_(),hourBackup=backupMigrationSheet_(ss,hourSheet,suffix),calendarBackup;
     try{calendarBackup=backupMigrationSheet_(ss,calendarSheet,suffix);}catch(backupError){throw ptbError_(backupError.code||'BACKUP_FAILED','第二張 migration 備份建立失敗',{hourSettingsBackup:hourBackup.name,originalErrorCode:backupError.code||'SERVER_ERROR'});}
     try{
