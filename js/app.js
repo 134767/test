@@ -76,6 +76,57 @@ function switchTab(tabId) {
   }
 }
 
+function createHourFormRow(index, ...groups) {
+  const row = document.createElement('div');
+  row.className = 'form-row hour-form-row';
+  row.dataset.hourFormRow = String(index);
+  groups.forEach(group => row.appendChild(group));
+  return row;
+}
+
+function applyHourFormSevenRowLayout(root) {
+  const modalBody = root?.querySelector('#hour-modal .modal-body');
+  if (!modalBody || modalBody.dataset.hourSevenRowLayout === 'true') return;
+
+  const groupFor = selector => modalBody.querySelector(selector)?.closest('.form-group') || null;
+  const academicYearGroup = groupFor('#hour-academicYear');
+  const budgetGroup = groupFor('#hour-budget-group');
+  const scheduleTypeGroup = groupFor('#hour-scheduleType');
+  const actualUnitGroup = groupFor('#hour-unit');
+  const weekdaysGroup = groupFor('#hour-weekdays');
+  const startTimeGroup = groupFor('#hour-startTime');
+  const endTimeGroup = groupFor('#hour-endTime');
+  const hoursGroup = groupFor('#hour-hours');
+  const noteGroup = groupFor('#hour-note');
+
+  const requiredGroups = [
+    academicYearGroup,
+    budgetGroup,
+    scheduleTypeGroup,
+    actualUnitGroup,
+    weekdaysGroup,
+    startTimeGroup,
+    endTimeGroup,
+    hoursGroup,
+    noteGroup
+  ];
+  if (requiredGroups.some(group => !group)) {
+    console.warn('[時數設定] 七列式表單排版套用失敗：缺少必要欄位');
+    return;
+  }
+
+  modalBody.replaceChildren(
+    createHourFormRow(1, academicYearGroup),
+    createHourFormRow(2, budgetGroup),
+    createHourFormRow(3, scheduleTypeGroup),
+    createHourFormRow(4, actualUnitGroup),
+    createHourFormRow(5, weekdaysGroup),
+    createHourFormRow(6, startTimeGroup, endTimeGroup, hoursGroup),
+    createHourFormRow(7, noteGroup)
+  );
+  modalBody.dataset.hourSevenRowLayout = 'true';
+}
+
 function initPage(tabId, container) {
   switch (tabId) {
     case 'budget':
@@ -86,6 +137,7 @@ function initPage(tabId, container) {
       break;
     case 'hour':
       initHourSettingPage(container);
+      applyHourFormSevenRowLayout(container);
       break;
     case 'calendar':
       initCalendarPage(container);
