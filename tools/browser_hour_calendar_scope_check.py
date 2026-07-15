@@ -164,8 +164,8 @@ def main():
         real = next(o for o in bg_opts if o["v"])
         page.select_option("#hour-budget-group", value=real["v"])
         page.wait_for_timeout(350)
-        # 實際單位可能被 1.5.6 增強為按鈕列（#hour-unit 隱藏）
-        unit_btns = page.locator("#hour-unit-buttons-v2 .weekday-btn")
+        # 正式架構使用可見按鈕，原生 select 僅保存選取狀態。
+        unit_btns = page.locator("#hour-unit-buttons .hour-choice-btn")
         unit_btn_count = unit_btns.count()
         unit_opts = page.eval_on_selector_all(
             "#hour-unit option", "els => els.map(e => e.value).filter(Boolean)"
@@ -178,12 +178,8 @@ def main():
                 "(el, v) => { el.value = v; el.dispatchEvent(new Event('change', {bubbles:true})); }",
                 unit_opts[0],
             )
-        # 作息類型可能是按鈕
-        st_btns = page.locator("#hour-schedule-type-buttons-v2 .weekday-btn")
-        if st_btns.count() > 0:
-            st_btns.first.click()
-        else:
-            page.select_option("#hour-scheduleType", index=1)
+        st_btns = page.locator("#hour-schedule-type-buttons .hour-choice-btn")
+        st_btns.first.click()
         # weekdays
         page.locator("#hour-weekdays .weekday-btn").first.click()
         page.fill("#hour-hours", "1")
@@ -202,7 +198,7 @@ def main():
         page.wait_for_timeout(500)
         bg_val = page.locator("#hour-budget-group").input_value()
         unit_val = page.locator("#hour-unit").input_value()
-        unit_active = page.locator("#hour-unit-buttons-v2 .weekday-btn.active").count()
+        unit_active = page.locator("#hour-unit-buttons .hour-choice-btn.active").count()
         OUT["checks"]["hour_edit_budget_prefilled"] = bool(bg_val)
         OUT["checks"]["hour_edit_unit_prefilled"] = bool(unit_val) or unit_active > 0
         page.click("#hour-cancel-btn")

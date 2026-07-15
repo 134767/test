@@ -1,6 +1,6 @@
 # PTB_2 工讀金 1.6.0
 
-目前 source build 為 `1.6.0-calendar-wage-hotfix-1`。GAS runtime 使用 collection replace mutation engine；同一 collection 以 250ms debounce 合併，Server 回傳完整 authoritative collection，失敗時前端回復最近一次 confirmed snapshot。
+目前 source build 為 `1.6.0-hour-button-shell-hotfix-3`。GAS runtime 使用 collection replace mutation engine；同一 collection 以 250ms debounce 合併，Server 回傳完整 authoritative collection，失敗時前端回復最近一次 confirmed snapshot。
 
 本 build 的時薪 source of truth 是 `05_calendar_rows.hourlyWage`：工時設定不含時薪，新增日曆作息區間時輸入的時薪會逐列快照。實際薪資金額維持人工輸入，未來預估則使用 forecast interval 時薪。正式 Sheet migration、真實 Sheet round-trip 與 production deployment 尚未執行。
 

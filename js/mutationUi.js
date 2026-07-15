@@ -1,4 +1,4 @@
-import { beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-calendar-wage-hotfix-1';
+import { beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-hour-button-shell-hotfix-3';
 
 const active = new WeakSet();
 

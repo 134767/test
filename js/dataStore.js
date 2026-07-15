@@ -477,9 +477,9 @@ function _snapshotCollections() {
 
 
 // 初始化：localStorage 模式沿用 seedData；GAS Shell 模式啟動時一次載入 Sheet 到前端 cache。
-import { beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-calendar-wage-hotfix-1';
-import { loadCsvDb, exportCsvDbSnapshot } from './csvDb.js?v=1.6.0-calendar-wage-hotfix-1';
-import { normalizeBudgetRecord, normalizeBudgetUnitCodes } from './budgetGroupUtils.js?v=1.6.0-calendar-wage-hotfix-1';
+import { beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-hour-button-shell-hotfix-3';
+import { loadCsvDb, exportCsvDbSnapshot } from './csvDb.js?v=1.6.0-hour-button-shell-hotfix-3';
+import { normalizeBudgetRecord, normalizeBudgetUnitCodes } from './budgetGroupUtils.js?v=1.6.0-hour-button-shell-hotfix-3';
 import {
   seedBudgets,
   seedUnits,
@@ -487,7 +487,7 @@ import {
   seedCalendarPeriods,
   seedCalendarRows,
   seedCalendarHolidays
-} from './seedData.js?v=1.6.0-calendar-wage-hotfix-1';
+} from './seedData.js?v=1.6.0-hour-button-shell-hotfix-3';
 
 export async function initDataStore() {
   _dataMode = _detectDataMode();
@@ -629,6 +629,121 @@ export async function saveHourSettingsBatch(records) {
   const rows = _dataMode === 'gasSheet' ? await mutateCollection('hourSettings', current => [...current, ...addedRecords], 'hour batch create') : await _setCollection('hourSettings', [..._clone(_getCollection('hourSettings')), ...addedRecords]);
   const ids = new Set(addedRecords.map(row => row.id));
   return { selected: source.length, added: addedRecords.length, addedRecords: rows.filter(row => ids.has(row.id)), skipped: [] };
+}
+
+const REFERENCED_HOUR_IDENTITY_GUARD = '此時數設定已被行事曆使用，原作息類型與實際單位不可移除；可保留原組合並新增其他組合。';
+
+function _hourSettingKey(row) {
+  return [row.academicYear, row.scheduleType, row.unitCode, row.weekdays, row.startTime, row.endTime]
+    .map(value => String(value ?? '').trim())
+    .join('|');
+}
+
+/**
+ * Atomically creates the selected schedule type × unit combinations.
+ * Local and GAS modes intentionally share this exact candidate builder.
+ */
+export async function saveHourSettingCombinations(input = {}) {
+  const editingId = String(input.editingId || '').trim();
+  const academicYear = String(input.academicYear || '').trim();
+  const scheduleTypes = [...new Set((input.scheduleTypes || []).map(value => String(value).trim()).filter(Boolean))];
+  const unitCodes = [...new Set((input.unitCodes || []).map(value => String(value).trim()).filter(Boolean))];
+  const weekdays = String(input.weekdays || '').trim();
+  const startTime = String(input.startTime || '').trim();
+  const endTime = String(input.endTime || '').trim();
+  const hours = Number(input.hours);
+  const note = String(input.note || '').trim();
+
+  if (!academicYear || !scheduleTypes.length || !unitCodes.length || !weekdays || !startTime || !endTime) {
+    throw new Error('時數設定必填欄位不可空白');
+  }
+  if (startTime >= endTime) throw new Error('開始時間必須小於結束時間');
+  if (!Number.isFinite(hours) || hours < 0) throw new Error('時數必須為有限非負數');
+
+  const unitMap = new Map((_getCollection('units') || []).map(unit => [String(unit.unitCode), unit]));
+  const missingUnits = unitCodes.filter(code => !unitMap.has(code));
+  if (missingUnits.length) throw new Error(`實際單位已不存在於單位設定：${missingUnits.join('、')}`);
+  const budgets = _getCollection('budgets') || [];
+  unitCodes.forEach(code => {
+    const scopes = budgets.filter(budget =>
+      String(budget.academicYear) === academicYear
+      && String(budget.budgetName || '').trim()
+      && normalizeBudgetUnitCodes(budget.unitCodes).includes(code)
+    );
+    if (!scopes.length) throw new Error(`實際單位不屬於目前學年度的預算群組：${code}`);
+    if (scopes.length > 1) throw new Error(`實際單位同時屬於多個預算群組：${code}`);
+  });
+
+  let originalId = editingId || null;
+  let createdIds = [];
+  const authoritativeRows = await mutateCollection('hourSettings', current => {
+    const now = new Date().toISOString();
+    const originalIndex = editingId ? current.findIndex(row => String(row.id) === editingId) : -1;
+    if (editingId && originalIndex < 0) {
+      const error = new Error(`EDIT_TARGET_NOT_FOUND: hourSettings/${editingId}`);
+      error.code = 'EDIT_TARGET_NOT_FOUND';
+      throw error;
+    }
+    const original = originalIndex >= 0 ? current[originalIndex] : null;
+    const keepsOriginalCombination = Boolean(original)
+      && String(original.academicYear) === academicYear
+      && scheduleTypes.includes(String(original.scheduleType))
+      && unitCodes.includes(String(original.unitCode));
+    const isReferenced = Boolean(original) && (_getCollection('calendarRows') || [])
+      .some(row => String(row.sourceHourSettingId) === editingId);
+    if (isReferenced && !keepsOriginalCombination) {
+      const error = new Error(REFERENCED_HOUR_IDENTITY_GUARD);
+      error.code = 'REFERENCED_HOUR_IDENTITY_CHANGE';
+      throw error;
+    }
+
+    const combinations = scheduleTypes.flatMap(scheduleType => unitCodes.map(unitCode => ({ scheduleType, unitCode })));
+    const originalPairIndex = original && keepsOriginalCombination
+      ? combinations.findIndex(item => item.scheduleType === String(original.scheduleType) && item.unitCode === String(original.unitCode))
+      : -1;
+    const preservedIndex = original ? (originalPairIndex >= 0 ? originalPairIndex : 0) : -1;
+    createdIds = [];
+    const expanded = combinations.map((combination, index) => {
+      const preserveOriginal = Boolean(original) && index === preservedIndex;
+      const id = preserveOriginal ? editingId : _newId('HOUR');
+      if (!preserveOriginal) createdIds.push(id);
+      return {
+        ...(preserveOriginal ? original : {}),
+        id,
+        academicYear,
+        scheduleType: combination.scheduleType,
+        unitCode: combination.unitCode,
+        unitName: String(unitMap.get(combination.unitCode)?.unitName || ''),
+        weekdays,
+        startTime,
+        endTime,
+        hours,
+        note,
+        createdAt: preserveOriginal ? (original.createdAt || now) : now,
+        updatedAt: now
+      };
+    });
+    if (!original && expanded.length) originalId = null;
+    const candidate = original ? [...current.slice(0, originalIndex), ...expanded, ...current.slice(originalIndex + 1)] : [...current, ...expanded];
+    const keys = new Set();
+    for (const row of candidate) {
+      const key = _hourSettingKey(row);
+      if (keys.has(key)) {
+        const error = new Error('同一學年度、作息類型、單位、週期、開館時間不可重複');
+        error.code = 'DUPLICATE_HOUR_SETTING';
+        throw error;
+      }
+      keys.add(key);
+    }
+    return candidate;
+  }, 'hour combinations save');
+
+  return {
+    originalId,
+    createdIds: [...createdIds],
+    createdCount: createdIds.length,
+    authoritativeRows
+  };
 }
 
 export async function saveCalendarRowsBatch(records) {

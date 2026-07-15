@@ -488,6 +488,46 @@ button {
   border-color: var(--primary);
 }
 
+.hour-choice-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-soft);
+}
+
+.hour-choice-btn {
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-bg, white);
+  color: inherit;
+  cursor: pointer;
+}
+
+.hour-choice-btn:hover:not(:disabled),
+.hour-choice-btn:focus-visible {
+  border-color: var(--primary);
+  outline: 2px solid color-mix(in srgb, var(--primary) 25%, transparent);
+  outline-offset: 1px;
+}
+
+.hour-choice-btn.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+  font-weight: 600;
+}
+
+.hour-choice-empty {
+  align-self: center;
+  color: #777;
+  font-size: 13px;
+}
+
 .preview-box {
   background: var(--panel-soft);
   border: 1px solid var(--border);

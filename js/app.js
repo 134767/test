@@ -1,27 +1,34 @@
 // js/app.js
 // 應用程式主控：初始化、tab 切換、各頁面載入
 
-import { installGasRuntimeCompatibility, formatGasRuntimeError } from './gasRuntimeCompat.js?v=1.6.0-calendar-wage-hotfix-2';
-import { initDataStore, getDataMode, exportLocalCsvDbSnapshot, resetLocalDataFromCsvDb, subscribeCollection } from './dataStore.js?v=1.6.0-calendar-wage-hotfix-2';
-import { installDbFeedback, beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-calendar-wage-hotfix-2';
-import { AppState, setCurrentTab } from './state.js?v=1.6.0-calendar-wage-hotfix-2';
-import { initBudgetPage, renderBudgetTable } from './budgetPage.js?v=1.6.0-calendar-wage-hotfix-2';
-import { initUnitPage, renderUnitTable } from './unitPage.js?v=1.6.0-calendar-wage-hotfix-2';
-import { initHourSettingPage, renderHourTable } from './hourSettingPage.js?v=1.6.0-calendar-wage-hotfix-2';
-import { initCalendarPage, renderCalendarTable } from './calendarPage.js?v=1.6.0-calendar-wage-hotfix-2';
-import { initSalaryEntryPage, renderSalaryEntryPage } from './salaryEntryPage.js?v=1.6.0-calendar-wage-hotfix-2';
-import { initDifferenceForecastPage, renderDifferenceForecastPage } from './differenceForecastPage.js?v=1.6.0-calendar-wage-hotfix-2';
-import { installPtb156Enhancements } from './ptb156Enhancements.js?v=1.6.0-calendar-wage-hotfix-2';
-import { installPtb156cUiSyncPatch } from './ptb156cUiSyncPatch.js?v=1.6.0-calendar-wage-hotfix-2';
+import { installGasRuntimeCompatibility, formatGasRuntimeError } from './gasRuntimeCompat.js?v=1.6.0-hour-button-shell-hotfix-3';
+import { initDataStore, getDataMode, exportLocalCsvDbSnapshot, resetLocalDataFromCsvDb, subscribeCollection } from './dataStore.js?v=1.6.0-hour-button-shell-hotfix-3';
+import { installDbFeedback, beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-hour-button-shell-hotfix-3';
+import { AppState, setCurrentTab } from './state.js?v=1.6.0-hour-button-shell-hotfix-3';
+import { initBudgetPage, renderBudgetTable } from './budgetPage.js?v=1.6.0-hour-button-shell-hotfix-3';
+import { initUnitPage, renderUnitTable } from './unitPage.js?v=1.6.0-hour-button-shell-hotfix-3';
+import { initHourSettingPage, renderHourTable } from './hourSettingPage.js?v=1.6.0-hour-button-shell-hotfix-3';
+import { initCalendarPage, renderCalendarTable } from './calendarPage.js?v=1.6.0-hour-button-shell-hotfix-3';
+import { initSalaryEntryPage, renderSalaryEntryPage } from './salaryEntryPage.js?v=1.6.0-hour-button-shell-hotfix-3';
+import { initDifferenceForecastPage, renderDifferenceForecastPage } from './differenceForecastPage.js?v=1.6.0-hour-button-shell-hotfix-3';
+import { installPtb156Enhancements } from './ptb156Enhancements.js?v=1.6.0-hour-button-shell-hotfix-3';
+import { installPtb156cUiSyncPatch } from './ptb156cUiSyncPatch.js?v=1.6.0-hour-button-shell-hotfix-3';
 
 let mainContainer = null;
 let tabButtons = {};
 let pageContainers = {};
 let currentPageInit = {};
+let unsubscribeCollectionChanges = null;
 
 function initTabs() {
   const tabBar = document.getElementById('tab-bar');
-  if (!tabBar) return;
+  mainContainer = document.getElementById('main-content');
+  if (!tabBar || !mainContainer) return;
+  tabBar.replaceChildren();
+  mainContainer.replaceChildren();
+  tabButtons = {};
+  pageContainers = {};
+  currentPageInit = {};
 
   const tabs = [
     { id: 'salaryEntry', label: '時薪登記' },
@@ -42,7 +49,6 @@ function initTabs() {
     tabButtons[tab.id] = btn;
   });
 
-  mainContainer = document.getElementById('main-content');
   ['salaryEntry', 'differenceForecast', 'calendar', 'unit', 'hour', 'budget'].forEach(id => {
     const div = document.createElement('div');
     div.id = `page-${id}`;
@@ -173,7 +179,8 @@ export async function bootstrap() {
   }
 
   initTabs();
-  subscribeCollection(() => {
+  unsubscribeCollectionChanges?.();
+  unsubscribeCollectionChanges = subscribeCollection(() => {
     const tabId = AppState.currentTab;
     if (tabId && currentPageInit[tabId]) refreshPage(tabId);
   });

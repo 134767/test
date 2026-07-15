@@ -5,9 +5,9 @@ import {
   deleteUnits,
   isUnitUsed,
   moveUnitOrder
-} from './dataStore.js?v=1.6.0-calendar-wage-hotfix-1';
-import { showToast } from './utils.js?v=1.6.0-calendar-wage-hotfix-1';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-calendar-wage-hotfix-1';
+} from './dataStore.js?v=1.6.0-hour-button-shell-hotfix-3';
+import { showToast } from './utils.js?v=1.6.0-hour-button-shell-hotfix-3';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-hour-button-shell-hotfix-3';
 
 let containerEl = null;
 let currentEditingId = null;

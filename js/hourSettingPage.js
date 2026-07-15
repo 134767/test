@@ -3,7 +3,7 @@ import {
   getBudgets,
   getUnits,
   getHourSettings,
-  saveHourSetting,
+  saveHourSettingCombinations,
   saveHourSettingsBatch,
   deleteHourSettings,
   isHourSettingUsed,
@@ -11,20 +11,20 @@ import {
   saveScheduleType,
   deleteScheduleType,
   isScheduleTypeUsed
-} from './dataStore.js?v=1.6.0-calendar-wage-hotfix-1';
-import { formatNumber, showToast, formatTimeRange, getWeekdaysArray, arrayToWeekdays, renderPagination } from './utils.js?v=1.6.0-calendar-wage-hotfix-1';
+} from './dataStore.js?v=1.6.0-hour-button-shell-hotfix-3';
+import { formatNumber, showToast, formatTimeRange, getWeekdaysArray, arrayToWeekdays, renderPagination } from './utils.js?v=1.6.0-hour-button-shell-hotfix-3';
 import {
   buildHourSettingDuplicateKey,
   getUniqueBudgetAcademicYears,
   planBatchHourCopy
-} from './hourBatchUtils.js?v=1.6.0-calendar-wage-hotfix-1';
+} from './hourBatchUtils.js?v=1.6.0-hour-button-shell-hotfix-3';
 import {
   getValidBudgetsForYear,
   findBudgetsByYearAndUnit,
   budgetOptionValue,
   findBudgetByOptionValue
-} from './hourBudgetScopeUtils.js?v=1.6.0-calendar-wage-hotfix-1';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-calendar-wage-hotfix-1';
+} from './hourBudgetScopeUtils.js?v=1.6.0-hour-button-shell-hotfix-3';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-hour-button-shell-hotfix-3';
 
 export {
   buildHourSettingDuplicateKey,
@@ -32,7 +32,7 @@ export {
   getValidBudgetUnitCodesForYear,
   isUnitInTargetBudgetScope,
   planBatchHourCopy
-} from './hourBatchUtils.js?v=1.6.0-calendar-wage-hotfix-1';
+} from './hourBatchUtils.js?v=1.6.0-hour-button-shell-hotfix-3';
 
 export {
   getValidBudgetsForYear,
@@ -40,7 +40,7 @@ export {
   resolveBudgetForNameAndYear,
   getDistinctValidBudgetNames,
   filterCalendarRowsByBudgetScope
-} from './hourBudgetScopeUtils.js?v=1.6.0-calendar-wage-hotfix-1';
+} from './hourBudgetScopeUtils.js?v=1.6.0-hour-button-shell-hotfix-3';
 
 let containerEl = null;
 let currentEditingId = null;
@@ -110,11 +110,13 @@ export function initHourSettingPage(container) {
           <div class="form-row">
             <div class="form-group">
               <label>作息類型 <span class="required">*</span></label>
-              <select id="hour-scheduleType"></select>
+              <select id="hour-scheduleType" hidden aria-hidden="true" tabindex="-1" multiple></select>
+              <div id="hour-schedule-type-buttons" class="hour-choice-buttons" role="group" aria-label="作息類型複選"></div>
             </div>
             <div class="form-group">
               <label>實際單位 <span class="required">*</span></label>
-              <select id="hour-unit"></select>
+              <select id="hour-unit" hidden aria-hidden="true" tabindex="-1" multiple></select>
+              <div id="hour-unit-buttons" class="hour-choice-buttons" role="group" aria-label="實際單位複選"></div>
             </div>
           </div>
 
@@ -385,9 +387,47 @@ function populateBudgetGroupSelect(selectedBudgetIdOrValue = '') {
 }
 
 /** Actual unit selector filtered by selected budget unitCodes. */
-function populateActualUnitSelect(selectedCode = '') {
+function getSelectedOptionValues(select) {
+  return Array.from(select?.selectedOptions || []).map(option => option.value).filter(Boolean);
+}
+
+function renderChoiceButtons(select, containerId, emptyText) {
+  const group = containerEl.querySelector(containerId);
+  if (!group || !select) return;
+  group.replaceChildren();
+  const options = Array.from(select.options).filter(option => option.value);
+  if (!options.length) {
+    const hint = document.createElement('span');
+    hint.className = 'hour-choice-empty';
+    hint.textContent = emptyText;
+    group.appendChild(hint);
+    return;
+  }
+  options.forEach(option => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'hour-choice-btn';
+    button.textContent = option.textContent;
+    button.dataset.value = option.value;
+    button.disabled = option.disabled;
+    const update = () => {
+      button.classList.toggle('active', option.selected);
+      button.setAttribute('aria-pressed', String(option.selected));
+    };
+    update();
+    button.addEventListener('click', () => {
+      option.selected = !option.selected;
+      update();
+    });
+    group.appendChild(button);
+  });
+}
+
+function populateActualUnitSelect(selectedCodes = []) {
   const sel = containerEl.querySelector('#hour-unit');
   if (!sel) return;
+
+  const selected = new Set(Array.isArray(selectedCodes) ? selectedCodes : [selectedCodes].filter(Boolean));
 
   const budget = getSelectedHourBudgetRecord();
   sel.innerHTML = '';
@@ -398,14 +438,11 @@ function populateActualUnitSelect(selectedCode = '') {
     opt.textContent = '請先選擇單位';
     sel.appendChild(opt);
     sel.disabled = true;
+    renderChoiceButtons(sel, '#hour-unit-buttons', '請先選擇單位');
     return;
   }
 
   sel.disabled = false;
-  const placeholder = document.createElement('option');
-  placeholder.value = '';
-  placeholder.textContent = '請選擇實際單位';
-  sel.appendChild(placeholder);
 
   const master = getUnits();
   const masterMap = new Map(master.map(u => [u.unitCode, u]));
@@ -421,6 +458,7 @@ function populateActualUnitSelect(selectedCode = '') {
     const opt = document.createElement('option');
     opt.value = u.unitCode;
     opt.textContent = `${u.unitCode} - ${u.unitName}`;
+    opt.selected = selected.has(u.unitCode);
     sel.appendChild(opt);
   });
 
@@ -429,11 +467,7 @@ function populateActualUnitSelect(selectedCode = '') {
   }
 
   // 規格：不可把不在群組／主檔中的原 unitCode 假裝為可選
-  if (selectedCode && [...sel.options].some(o => o.value === selectedCode)) {
-    sel.value = selectedCode;
-  } else {
-    sel.value = '';
-  }
+  renderChoiceButtons(sel, '#hour-unit-buttons', '此預算群組沒有可選的實際單位');
 }
 
 // backward-compatible alias used nowhere critical
@@ -441,9 +475,11 @@ function populateUnitSelect(selectedCode = '') {
   populateActualUnitSelect(selectedCode);
 }
 
-function populateScheduleTypeSelect(selected = '') {
+function populateScheduleTypeSelect(selectedValues = []) {
   const sel = containerEl.querySelector('#hour-scheduleType');
   if (!sel) return;
+
+  const selected = new Set(Array.isArray(selectedValues) ? selectedValues : [selectedValues].filter(Boolean));
 
   sel.innerHTML = '';
 
@@ -453,31 +489,28 @@ function populateScheduleTypeSelect(selected = '') {
     opt.value = '';
     opt.textContent = '請先按「新增作息」建立作息類型';
     sel.appendChild(opt);
+    renderChoiceButtons(sel, '#hour-schedule-type-buttons', '請先建立作息類型');
     return;
   }
-
-  const placeholder = document.createElement('option');
-  placeholder.value = '';
-  placeholder.textContent = '請選擇作息類型';
-  sel.appendChild(placeholder);
 
   types.forEach(t => {
     const opt = document.createElement('option');
     opt.value = t.name;
     opt.textContent = t.name;
+    opt.selected = selected.has(t.name);
     sel.appendChild(opt);
   });
 
   // 編輯時若舊值不在全域清單，臨時加入並標註
-  if (selected && !types.some(t => t.name === selected)) {
+  selected.forEach(value => {
+    if (types.some(t => t.name === value)) return;
     const opt = document.createElement('option');
-    opt.value = selected;
-    opt.textContent = selected + '（原值，未在全域作息清單）';
-    opt.disabled = true;  // 仍允許儲存但標註
+    opt.value = value;
+    opt.textContent = value + '（原值，未在全域作息清單）';
+    opt.selected = true;
     sel.appendChild(opt);
-  }
-
-  sel.value = selected || '';
+  });
+  renderChoiceButtons(sel, '#hour-schedule-type-buttons', '沒有可選的作息類型');
 }
 
 export function renderHourTable() {
@@ -903,13 +936,7 @@ function showHourModal(item = null) {
   const hours = containerEl.querySelector('#hour-hours');
   const note = containerEl.querySelector('#hour-note');
 
-  populateScheduleTypeSelect(item ? item.scheduleType : '');
-  const scheduleSelect = containerEl.querySelector('#hour-scheduleType');
-  const unitSelect = containerEl.querySelector('#hour-unit');
-  scheduleSelect.multiple = !item;
-  scheduleSelect.size = item ? 1 : Math.min(5, Math.max(2, scheduleSelect.options.length));
-  unitSelect.multiple = !item;
-  unitSelect.size = item ? 1 : 4;
+  populateScheduleTypeSelect(item ? [item.scheduleType] : []);
   start.value = item ? item.startTime : '08:00';
   end.value = item ? item.endTime : '21:30';
   hours.value = item ? item.hours : '';
@@ -922,7 +949,7 @@ function showHourModal(item = null) {
     if (derived.status === 'unique') {
       hourEditBudgetStatus = 'ok';
       populateBudgetGroupSelect(budgetOptionValue(derived.budgets[0]));
-      populateActualUnitSelect(item.unitCode);
+      populateActualUnitSelect([item.unitCode]);
       setHourBudgetHint('');
     } else if (derived.status === 'none') {
       hourEditBudgetStatus = 'none';
@@ -1017,11 +1044,6 @@ async function handleSaveHourSetting() {
     showToast('實際單位已不存在於單位設定', 'error');
     return;
   }
-  if (currentEditingId && (scheduleTypes.length !== 1 || unitCodes.length !== 1)) {
-    showToast('編輯既有時數設定時，作息類型與實際單位都只能選擇一個', 'error');
-    return;
-  }
-
   if (selectedDays.length === 0) {
     showToast('至少選擇一個週期類型（星期）', 'error');
     return;
@@ -1034,28 +1056,31 @@ async function handleSaveHourSetting() {
     showToast('時數必須為數字', 'error');
     return;
   }
-  // 唯一性檢查：同一學年度 + 作息 + 單位 + 週期 + 開館時間
-  const combinations = scheduleTypes.flatMap(scheduleType => unitCodes.map(unitCode => ({ scheduleType, unitCode })));
-  const existingKeys = new Set(getHourSettings().filter(h => !currentEditingId || h.id !== currentEditingId).map(buildHourSettingDuplicateKey));
-  const dup = combinations.some(item => existingKeys.has(buildHourSettingDuplicateKey({ academicYear:ay, scheduleType:item.scheduleType, unitCode:item.unitCode, weekdays:weekdaysStr, startTime:start, endTime:end })));
-
-  if (dup) {
-    showToast('同一學年度、作息類型、單位、週期、開館時間不可重複', 'error');
-    return;
-  }
-
-  // 不寫入 budgetId / budgetName
   const wasEditing = Boolean(currentEditingId);
-  const records = combinations.map(({ scheduleType, unitCode }) => ({
-    id: currentEditingId,
-    academicYear: ay, scheduleType, unitCode, unitName: unitMap.get(unitCode).unitName,
-    weekdays: weekdaysStr, startTime: start, endTime: end,
-    hours: Number(hours), note
-  }));
   try {
-    await runWithMutationUiLock([containerEl.querySelector('#hour-save-btn'),containerEl.querySelector('#hour-cancel-btn')],()=>wasEditing ? saveHourSetting(records[0]) : saveHourSettingsBatch(records),{processingLabel:'同步中…'});
-    renderHourTable(); hideHourModal(); showToast(wasEditing ? '已同步' : `已同步（新增 ${records.length} 筆時數設定）`);
-  } catch { renderHourTable(); }
+    const result = await runWithMutationUiLock(
+      [containerEl.querySelector('#hour-save-btn'), containerEl.querySelector('#hour-cancel-btn')],
+      () => saveHourSettingCombinations({
+        editingId: currentEditingId,
+        academicYear: ay,
+        scheduleTypes,
+        unitCodes,
+        weekdays: weekdaysStr,
+        startTime: start,
+        endTime: end,
+        hours: Number(hours),
+        note
+      }),
+      { processingLabel: '同步中…' }
+    );
+    renderHourTable();
+    hideHourModal();
+    const total = scheduleTypes.length * unitCodes.length;
+    showToast(wasEditing ? `已同步（儲存 ${total} 筆組合，新增 ${result.createdCount} 筆）` : `已同步（新增 ${result.createdCount} 筆時數設定）`);
+  } catch (error) {
+    renderHourTable();
+    showToast(error?.message || '時數設定儲存失敗', 'error');
+  }
 }
 
 function escapeHtml(str) {
@@ -1128,7 +1153,7 @@ function renderScheduleTypeListInModal() {
         // 若 hour modal 開啟，也刷新其下拉
         const hourM = containerEl.querySelector('#hour-modal');
         if (hourM && hourM.style.display === 'flex') {
-          const cur = containerEl.querySelector('#hour-scheduleType').value;
+          const cur = getSelectedOptionValues(containerEl.querySelector('#hour-scheduleType'));
           populateScheduleTypeSelect(cur);
         }
       }
@@ -1173,7 +1198,7 @@ async function handleScheduleTypeSave() {
   // 若「新增時數 / 編輯時數」modal 已開啟，刷新作息類型下拉選單
   const hourModal = containerEl.querySelector('#hour-modal');
   if (hourModal && hourModal.style.display === 'flex') {
-    const cur = containerEl.querySelector('#hour-scheduleType').value;
+    const cur = getSelectedOptionValues(containerEl.querySelector('#hour-scheduleType'));
     populateScheduleTypeSelect(cur);
   }
 
