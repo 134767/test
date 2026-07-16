@@ -28,6 +28,11 @@ function replaceBudgetTerminology(root) {
   setFieldLabel(root, '#salary-budget-name', '預算單位');
   setFieldLabel(root, '#cal-filter-budget-group', '預算單位');
 
+  const budgetNameInput = root.querySelector('#budget-name');
+  if (budgetNameInput && budgetNameInput.placeholder !== '例如 xx組') {
+    budgetNameInput.placeholder = '例如 xx組';
+  }
+
   root.querySelectorAll('option[value=""]').forEach(option => {
     if (option.closest('#page-differenceForecast')) return;
     const text = option.textContent.trim();
