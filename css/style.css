@@ -1314,6 +1314,27 @@ button {
   font-weight: 600;
 }
 
+.budget-duplicate-warning {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid #f0a5a0;
+  border-radius: 6px;
+  color: #8a1c13;
+  background: #fff1f0;
+  font-weight: 600;
+}
+
+.budget-duplicate-row td {
+  background: #fff8f7;
+}
+
+.budget-duplicate-label {
+  margin-top: 3px;
+  color: #b42318;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 @media (max-width: 768px) {
   .hour-batch-meta-row {
     flex-direction: column;

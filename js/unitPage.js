@@ -5,9 +5,9 @@ import {
   deleteUnits,
   isUnitUsed,
   moveUnitOrder
-} from './dataStore.js?v=1.6.0-hour-budget-batch-hotfix-7';
-import { showToast } from './utils.js?v=1.6.0-hour-budget-batch-hotfix-7';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-hour-budget-batch-hotfix-7';
+} from './dataStore.js?v=1.6.0-budget-option-dedup-hotfix-8';
+import { showToast } from './utils.js?v=1.6.0-budget-option-dedup-hotfix-8';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-budget-option-dedup-hotfix-8';
 
 let containerEl = null;
 let currentEditingId = null;

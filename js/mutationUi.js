@@ -1,4 +1,4 @@
-import { beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-hour-budget-batch-hotfix-7';
+import { beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-budget-option-dedup-hotfix-8';
 
 const active = new WeakSet();
 

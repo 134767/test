@@ -10,6 +10,94 @@ export function getValidBudgets(budgets = []) {
   return (budgets || []).map(normalizeBudgetRecord).filter(isValidBudgetRecord);
 }
 
+/** Stable runtime identity: persisted id first, otherwise immutable business fields. */
+export function budgetStableIdentity(budget = {}) {
+  const b = normalizeBudgetRecord(budget);
+  if (b.id) return `id:${b.id}`;
+  return `fallback:${JSON.stringify([
+    b.academicYear,
+    b.budgetName,
+    b.unitCodes.slice().sort((a, z) => a.localeCompare(z)),
+    b.budgetAmount,
+    b.note
+  ])}`;
+}
+
+export function deduplicateBudgetsByStableIdentity(budgets = []) {
+  const seen = new Set();
+  const unique = [];
+  getValidBudgets(budgets).forEach(budget => {
+    const identity = budgetStableIdentity(budget);
+    if (seen.has(identity)) return;
+    seen.add(identity);
+    unique.push(budget);
+  });
+  return unique;
+}
+
+/** One option per academicYear + budgetName, with distinct persisted conflicts disabled by callers. */
+export function analyzeBudgetOptionsForYear(budgets = [], academicYear = '') {
+  const ay = String(academicYear ?? '').trim();
+  if (!ay) return { options: [], duplicateGroups: [] };
+  const raw = getValidBudgets(budgets).filter(b => b.academicYear === ay);
+  const unique = deduplicateBudgetsByStableIdentity(raw);
+  const groups = new Map();
+  unique.forEach(budget => {
+    if (!groups.has(budget.budgetName)) groups.set(budget.budgetName, []);
+    groups.get(budget.budgetName).push(budget);
+  });
+  const rawCounts = new Map();
+  raw.forEach(budget => rawCounts.set(budget.budgetName, (rawCounts.get(budget.budgetName) || 0) + 1));
+  const options = [...groups.entries()].map(([budgetName, records]) => {
+    if (records.length === 1) {
+      const budget = records[0];
+      return {
+        academicYear: ay,
+        budgetName,
+        value: budgetOptionValue(budget),
+        budget,
+        status: 'unique',
+        recordCount: 1,
+        rawRecordCount: rawCounts.get(budgetName) || 1,
+        records: records.slice()
+      };
+    }
+    return {
+      academicYear: ay,
+      budgetName,
+      value: '',
+      budget: null,
+      status: 'duplicate',
+      recordCount: records.length,
+      rawRecordCount: rawCounts.get(budgetName) || records.length,
+      records: records.slice()
+    };
+  }).sort((a, b) => a.budgetName.localeCompare(b.budgetName, 'zh-Hant'));
+  return { options, duplicateGroups: options.filter(option => option.status === 'duplicate') };
+}
+
+/** Read-only diagnostic groups; never exposes spreadsheet configuration. */
+export function diagnoseBudgetDuplicateGroups(budgets = []) {
+  const rawGroups = new Map();
+  getValidBudgets(budgets).forEach(budget => {
+    const key = `${budget.academicYear}\u0001${budget.budgetName}`;
+    if (!rawGroups.has(key)) rawGroups.set(key, []);
+    rawGroups.get(key).push(budget);
+  });
+  return [...rawGroups.values()].filter(records => records.length > 1).map(records => {
+    const identities = new Set(records.map(budgetStableIdentity));
+    return {
+      academicYear: records[0].academicYear,
+      budgetName: records[0].budgetName,
+      rawRecordCount: records.length,
+      uniqueIdentityCount: identities.size,
+      recordIds: [...new Set(records.map(r => r.id).filter(Boolean))],
+      unitCodeSets: records.map(r => r.unitCodes.slice().sort()),
+      category: identities.size === 1 ? 'RUNTIME_DUPLICATE_SAME_ID' : 'PERSISTED_DUPLICATE_DIFFERENT_IDS'
+    };
+  });
+}
+
 /** Valid budgets for a single academic year, sorted by budgetName zh-Hant asc. */
 export function getValidBudgetsForYear(budgets = [], academicYear = '') {
   const ay = String(academicYear ?? '').trim();
@@ -51,7 +139,7 @@ export function resolveBudgetForNameAndYear(budgets = [], budgetName = '', acade
   const name = String(budgetName ?? '').trim();
   const ay = String(academicYear ?? '').trim();
   if (!name || !ay) return { ok: false, error: 'missing', matches: [] };
-  const matches = getValidBudgets(budgets).filter(b => b.budgetName === name && b.academicYear === ay);
+  const matches = deduplicateBudgetsByStableIdentity(budgets).filter(b => b.budgetName === name && b.academicYear === ay);
   if (matches.length === 0) return { ok: false, error: 'missing_year_group', matches };
   if (matches.length > 1) return { ok: false, error: 'duplicate_year_group', matches };
   return { ok: true, budget: matches[0], matches };
@@ -64,7 +152,7 @@ export function resolveBudgetForNameAndYear(budgets = [], budgetName = '', acade
 export function findBudgetsByYearAndUnit(budgets = [], academicYear = '', unitCode = '') {
   const ay = String(academicYear ?? '').trim();
   const code = String(unitCode ?? '').trim();
-  const matches = getValidBudgets(budgets).filter(b =>
+  const matches = deduplicateBudgetsByStableIdentity(budgets).filter(b =>
     b.academicYear === ay && b.unitCodes.includes(code)
   );
   if (matches.length === 1) return { status: 'unique', budgets: matches };

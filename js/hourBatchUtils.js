@@ -1,10 +1,11 @@
 // Pure helpers for PTB 1.6.0 hour-setting batch copy. No DOM / dataStore deps.
 import { normalizeBudgetUnitCodes } from './budgetGroupUtils.js';
 import {
+  analyzeBudgetOptionsForYear,
   budgetOptionValue,
+  deduplicateBudgetsByStableIdentity,
   findBudgetsByYearAndUnit,
-  getValidBudgets,
-  getValidBudgetsForYear
+  getValidBudgets
 } from './hourBudgetScopeUtils.js';
 
 /** Duplicate key: academicYear + scheduleType + unitCode + weekdays + startTime + endTime */
@@ -60,7 +61,22 @@ function resolveBudgetById(budgets = [], budgetId = '', academicYear = '') {
   const id = String(budgetId ?? '').trim();
   const ay = String(academicYear ?? '').trim();
   if (!id || !ay) return null;
-  return getValidBudgets(budgets).find(b => budgetOptionValue(b) === id && b.academicYear === ay) || null;
+  return deduplicateBudgetsByStableIdentity(budgets).find(b => budgetOptionValue(b) === id && b.academicYear === ay) || null;
+}
+
+function validateBudgetSelection(budgets, academicYear, budgetId, role) {
+  const budget = resolveBudgetById(budgets, budgetId, academicYear);
+  if (!budget) return { ok: false, budget: null, error: `${role}預算單位不存在或學年度不符` };
+  const option = analyzeBudgetOptionsForYear(budgets, academicYear).options
+    .find(item => item.budgetName === budget.budgetName);
+  if (!option || option.status !== 'unique' || option.value !== budgetOptionValue(budget)) {
+    return {
+      ok: false,
+      budget,
+      error: `${role}學年度的預算單位「${budget.budgetName}」存在重複資料，請先至預算設定修正。`
+    };
+  }
+  return { ok: true, budget, option };
 }
 
 /** Source years must have both real hour rows and at least one valid budget. */
@@ -91,9 +107,9 @@ export function filterHourSettingsByBudget({
 /** Auto-select only a unique same-name target budget. */
 export function findSameNameTargetBudget(budgets = [], sourceBudget = null, targetAcademicYear = '') {
   if (!sourceBudget) return null;
-  const matches = getValidBudgetsForYear(budgets, targetAcademicYear)
-    .filter(b => b.budgetName === sourceBudget.budgetName);
-  return matches.length === 1 ? matches[0] : null;
+  const option = analyzeBudgetOptionsForYear(budgets, targetAcademicYear).options
+    .find(item => item.budgetName === sourceBudget.budgetName);
+  return option?.status === 'unique' ? option.budget : null;
 }
 
 /**
@@ -114,8 +130,10 @@ export function planBatchHourCopy({
   const ids = Array.isArray(sourceIds) ? sourceIds.map(id => String(id || '').trim()).filter(Boolean) : [];
   const byId = new Map((hourSettings || []).map(h => [String(h.id || ''), h]));
   const unitByCode = new Map((units || []).map(u => [String(u.unitCode || '').trim(), u]));
-  const sourceBudget = resolveBudgetById(budgets, sourceBudgetId, sourceAy);
-  const targetBudget = resolveBudgetById(budgets, targetBudgetId, targetAy);
+  const sourceValidation = validateBudgetSelection(budgets, sourceAy, sourceBudgetId, '來源');
+  const targetValidation = validateBudgetSelection(budgets, targetAy, targetBudgetId, '目標');
+  const sourceBudget = sourceValidation.budget;
+  const targetBudget = targetValidation.budget;
 
   const base = {
     selected: ids.length,
@@ -128,8 +146,8 @@ export function planBatchHourCopy({
     toAdd: [],
     skipped: []
   };
-  if (!sourceBudget) return { ...base, ok: false, error: '來源預算單位不存在或學年度不符', counters: { selected: ids.length, added: 0 } };
-  if (!targetBudget) return { ...base, ok: false, error: '目標預算單位不存在或學年度不符', counters: { selected: ids.length, added: 0 } };
+  if (!sourceValidation.ok) return { ...base, ok: false, error: sourceValidation.error, counters: { selected: ids.length, added: 0 } };
+  if (!targetValidation.ok) return { ...base, ok: false, error: targetValidation.error, counters: { selected: ids.length, added: 0 } };
 
   const sourceScopeUnits = new Set(sourceBudget.unitCodes);
   const targetScopeUnits = new Set(targetBudget.unitCodes);

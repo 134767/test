@@ -1,8 +1,9 @@
 // js/budgetPage.js
-import { getBudgets, saveBudget, deleteBudgets, getUnits } from './dataStore.js?v=1.6.0-hour-budget-batch-hotfix-7';
-import { formatNumber, showToast } from './utils.js?v=1.6.0-hour-budget-batch-hotfix-7';
-import { normalizeBudgetRecord, normalizeBudgetUnitCodes, validateRocAcademicYear } from './budgetGroupUtils.js?v=1.6.0-hour-budget-batch-hotfix-7';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-hour-budget-batch-hotfix-7';
+import { getBudgets, saveBudget, deleteBudgets, getUnits } from './dataStore.js?v=1.6.0-budget-option-dedup-hotfix-8';
+import { formatNumber, showToast } from './utils.js?v=1.6.0-budget-option-dedup-hotfix-8';
+import { normalizeBudgetRecord, normalizeBudgetUnitCodes, validateRocAcademicYear } from './budgetGroupUtils.js?v=1.6.0-budget-option-dedup-hotfix-8';
+import { diagnoseBudgetDuplicateGroups } from './hourBudgetScopeUtils.js?v=1.6.0-budget-option-dedup-hotfix-8';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-budget-option-dedup-hotfix-8';
 
 let currentEditingId = null;
 let containerEl = null;
@@ -12,6 +13,7 @@ export function initBudgetPage(container) {
   containerEl = container;
   container.innerHTML = `
     <div class="page-header"><h2>預算設定</h2><div class="toolbar"><button id="btn-add-budget" class="btn-primary">新增預算</button><button id="btn-delete-budget" class="btn-danger">刪除</button></div></div>
+    <div id="budget-duplicate-warning" class="budget-duplicate-warning" role="alert" hidden>偵測到同學年度、同單位名稱的重複預算資料。請保留正確的一筆並刪除其餘資料後，再使用批次新增。</div>
     <div class="table-wrapper"><table class="data-table" id="budget-table"><thead><tr><th style="width:42px"><input type="checkbox" id="budget-all-check"></th><th>學年度</th><th>單位名稱</th><th>單位群組</th><th>預算金額</th><th>備註</th><th style="width:80px">操作</th></tr></thead><tbody id="budget-tbody"></tbody></table></div>
     <div id="budget-modal" class="modal"><div class="modal-content"><div class="modal-header"><h3 id="budget-modal-title">新增預算</h3></div><div class="modal-body">
       <div class="form-group"><label>學年度 <span class="required">*</span></label><input type="text" id="budget-academicYear" placeholder="例如 114" maxlength="10"></div>
@@ -41,11 +43,17 @@ export function renderBudgetTable() {
   if (!containerEl) return;
   const tbody = containerEl.querySelector('#budget-tbody');
   const data = getBudgets().map(normalizeBudgetRecord).sort((a,b)=>String(b.academicYear).localeCompare(String(a.academicYear),'zh-Hant'));
+  const duplicateGroups = diagnoseBudgetDuplicateGroups(getBudgets());
+  const duplicateByKey = new Map(duplicateGroups.map(group => [`${group.academicYear}\u0001${group.budgetName}`, group]));
+  const warning = containerEl.querySelector('#budget-duplicate-warning');
+  if (warning) warning.hidden = duplicateGroups.length === 0;
   tbody.innerHTML = '';
   data.forEach(item => {
     const legacy = isLegacyBudget(item);
+    const duplicate = duplicateByKey.get(`${item.academicYear}\u0001${item.budgetName}`);
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td><input type="checkbox" class="row-check" data-id="${item.id}"></td><td>${escapeHtml(item.academicYear)}</td><td>${legacy ? '待補設定' : escapeHtml(item.budgetName)}</td><td>${legacy ? '待補設定' : displayUnitCodes(item.unitCodes)}</td><td style="text-align:right">${formatNumber(item.budgetAmount)}</td><td>${escapeHtml(item.note)}</td><td><button class="btn-edit" data-id="${item.id}">編輯</button></td>`;
+    if (duplicate) tr.classList.add('budget-duplicate-row');
+    tr.innerHTML = `<td><input type="checkbox" class="row-check" data-id="${item.id}"></td><td>${escapeHtml(item.academicYear)}</td><td>${legacy ? '待補設定' : escapeHtml(item.budgetName)}${duplicate ? `<div class="budget-duplicate-label">資料重複（共 ${duplicate.rawRecordCount} 筆）</div>` : ''}</td><td>${legacy ? '待補設定' : displayUnitCodes(item.unitCodes)}</td><td style="text-align:right">${formatNumber(item.budgetAmount)}</td><td>${escapeHtml(item.note)}</td><td><button class="btn-edit" data-id="${item.id}">編輯</button></td>`;
     tbody.appendChild(tr);
   });
   tbody.querySelectorAll('.btn-edit').forEach(btn => btn.addEventListener('click', () => showBudgetModal(getBudgets().find(b => b.id === btn.dataset.id))));

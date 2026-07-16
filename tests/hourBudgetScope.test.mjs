@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  analyzeBudgetOptionsForYear,
+  budgetStableIdentity,
+  deduplicateBudgetsByStableIdentity,
+  diagnoseBudgetDuplicateGroups,
   getValidBudgetsForYear,
   getDistinctValidBudgetNames,
   getYearsForBudgetName,
@@ -121,4 +125,52 @@ test('budget option value prefers id', () => {
   assert.equal(budgetOptionValue({ id: 'B1', academicYear: '114', budgetName: 'G' }), 'B1');
   const found = findBudgetByOptionValue(budgets, 'B1', '114');
   assert.equal(found.budgetName, 'Group_Alpha');
+});
+
+test('same runtime id repeated three times produces one unique option', () => {
+  const repeated = [budgets[0], structuredClone(budgets[0]), structuredClone(budgets[0])];
+  const result = analyzeBudgetOptionsForYear(repeated, '114');
+  assert.equal(result.options.length, 1);
+  assert.equal(result.options[0].status, 'unique');
+  assert.equal(result.options[0].value, 'B1');
+  assert.equal(result.options[0].rawRecordCount, 3);
+  assert.equal(deduplicateBudgetsByStableIdentity(repeated).length, 1);
+});
+
+test('different ids with same year and name produce one disabled conflict model', () => {
+  const conflicts = [
+    { id: 'D1', academicYear: '114', budgetName: '讀服組', unitCodes: ['U1'], budgetAmount: 10 },
+    { id: 'D2', academicYear: '114', budgetName: '讀服組', unitCodes: ['U2'], budgetAmount: 20 },
+    { id: 'D3', academicYear: '114', budgetName: '讀服組', unitCodes: ['U3'], budgetAmount: 30 }
+  ];
+  const result = analyzeBudgetOptionsForYear(conflicts, '114');
+  assert.equal(result.options.length, 1);
+  assert.equal(result.options[0].status, 'duplicate');
+  assert.equal(result.options[0].value, '');
+  assert.equal(result.options[0].recordCount, 3);
+  assert.equal(result.duplicateGroups.length, 1);
+});
+
+test('same name in different academic years remains unique per year', () => {
+  const crossYear = [
+    { id: 'Y114', academicYear: '114', budgetName: '讀服組', unitCodes: ['U1'], budgetAmount: 10 },
+    { id: 'Y115', academicYear: '115', budgetName: '讀服組', unitCodes: ['U2'], budgetAmount: 20 }
+  ];
+  assert.equal(analyzeBudgetOptionsForYear(crossYear, '114').options[0].status, 'unique');
+  assert.equal(analyzeBudgetOptionsForYear(crossYear, '115').options[0].status, 'unique');
+});
+
+test('fallback identity sorts unit codes and diagnostics classify duplicate categories', () => {
+  const a = { academicYear: '114', budgetName: '無編號', unitCodes: ['U2', 'U1'], budgetAmount: 10, note: 'n' };
+  const b = { ...a, unitCodes: ['U1', 'U2'] };
+  assert.equal(budgetStableIdentity(a), budgetStableIdentity(b));
+  const runtime = diagnoseBudgetDuplicateGroups([a, b])[0];
+  assert.equal(runtime.category, 'RUNTIME_DUPLICATE_SAME_ID');
+  assert.equal(runtime.uniqueIdentityCount, 1);
+  const persisted = diagnoseBudgetDuplicateGroups([
+    { ...a, id: 'P1' },
+    { ...a, id: 'P2' }
+  ])[0];
+  assert.equal(persisted.category, 'PERSISTED_DUPLICATE_DIFFERENT_IDS');
+  assert.deepEqual(persisted.recordIds, ['P1', 'P2']);
 });

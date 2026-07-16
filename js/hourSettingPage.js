@@ -11,8 +11,8 @@ import {
   saveScheduleType,
   deleteScheduleType,
   isScheduleTypeUsed
-} from './dataStore.js?v=1.6.0-hour-budget-batch-hotfix-7';
-import { formatNumber, showToast, formatTimeRange, getWeekdaysArray, arrayToWeekdays, renderPagination } from './utils.js?v=1.6.0-hour-budget-batch-hotfix-7';
+} from './dataStore.js?v=1.6.0-budget-option-dedup-hotfix-8';
+import { formatNumber, showToast, formatTimeRange, getWeekdaysArray, arrayToWeekdays, renderPagination } from './utils.js?v=1.6.0-budget-option-dedup-hotfix-8';
 import {
   buildHourSettingDuplicateKey,
   filterHourSettingsByBudget,
@@ -20,15 +20,16 @@ import {
   getBatchSourceAcademicYears,
   getUniqueBudgetAcademicYears,
   planBatchHourCopy
-} from './hourBatchUtils.js?v=1.6.0-hour-budget-batch-hotfix-7';
+} from './hourBatchUtils.js?v=1.6.0-budget-option-dedup-hotfix-8';
 import {
+  analyzeBudgetOptionsForYear,
   getValidBudgetsForYear,
   deriveHourBudgetUnit,
   findBudgetsByYearAndUnit,
   budgetOptionValue,
   findBudgetByOptionValue
-} from './hourBudgetScopeUtils.js?v=1.6.0-hour-budget-batch-hotfix-7';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-hour-budget-batch-hotfix-7';
+} from './hourBudgetScopeUtils.js?v=1.6.0-budget-option-dedup-hotfix-8';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-budget-option-dedup-hotfix-8';
 
 export {
   buildHourSettingDuplicateKey,
@@ -36,7 +37,7 @@ export {
   getValidBudgetUnitCodesForYear,
   isUnitInTargetBudgetScope,
   planBatchHourCopy
-} from './hourBatchUtils.js?v=1.6.0-hour-budget-batch-hotfix-7';
+} from './hourBatchUtils.js?v=1.6.0-budget-option-dedup-hotfix-8';
 
 export {
   getValidBudgetsForYear,
@@ -44,7 +45,7 @@ export {
   resolveBudgetForNameAndYear,
   getDistinctValidBudgetNames,
   filterCalendarRowsByBudgetScope
-} from './hourBudgetScopeUtils.js?v=1.6.0-hour-budget-batch-hotfix-7';
+} from './hourBudgetScopeUtils.js?v=1.6.0-budget-option-dedup-hotfix-8';
 
 let containerEl = null;
 let currentEditingId = null;
@@ -643,7 +644,9 @@ function fillBatchSelect(sel, placeholderText, items, selected = '') {
     const opt = document.createElement('option');
     opt.value = item.value;
     opt.textContent = item.label;
-    if (item.value === selected) opt.selected = true;
+    opt.disabled = Boolean(item.disabled);
+    if (item.status) opt.dataset.status = item.status;
+    if (item.value && item.value === selected) opt.selected = true;
     sel.appendChild(opt);
   });
   sel.disabled = items.length === 0;
@@ -666,11 +669,19 @@ export function populateBatchTargetYearSelect(selected = '') {
 export function populateBatchSourceBudgetSelect(selected = '') {
   const year = containerEl?.querySelector('#hour-batch-source-year')?.value || '';
   const query = (containerEl?.querySelector('#hour-batch-source-budget-search')?.value || '').trim().toLowerCase();
-  const list = getValidBudgetsForYear(getBudgets(), year).filter(b => !query || b.budgetName.toLowerCase().includes(query));
+  const list = analyzeBudgetOptionsForYear(getBudgets(), year).options
+    .filter(option => !query || option.budgetName.toLowerCase().includes(query));
   fillBatchSelect(
     containerEl?.querySelector('#hour-batch-source-budget'),
     year ? (list.length ? '請選擇來源預算單位' : '沒有符合的來源預算單位') : '請先選擇來源學年度',
-    list.map(b => ({ value: budgetOptionValue(b), label: b.budgetName })),
+    list.map(option => ({
+      value: option.value,
+      label: option.status === 'duplicate'
+        ? `${option.budgetName}（重複 ${option.recordCount} 筆，請先修正）`
+        : option.budgetName,
+      disabled: option.status === 'duplicate',
+      status: option.status
+    })),
     selected
   );
   return list;
@@ -681,7 +692,7 @@ export function populateBatchTargetBudgetSelect(selected = '', autoSameName = fa
   const sourceYear = containerEl?.querySelector('#hour-batch-source-year')?.value || '';
   const sourceValue = containerEl?.querySelector('#hour-batch-source-budget')?.value || '';
   const sourceBudget = findBudgetByOptionValue(getBudgets(), sourceValue, sourceYear);
-  const list = getValidBudgetsForYear(getBudgets(), year);
+  const list = analyzeBudgetOptionsForYear(getBudgets(), year).options;
   let value = selected;
   if (autoSameName && sourceBudget) {
     const match = findSameNameTargetBudget(getBudgets(), sourceBudget, year);
@@ -690,7 +701,14 @@ export function populateBatchTargetBudgetSelect(selected = '', autoSameName = fa
   fillBatchSelect(
     containerEl?.querySelector('#hour-batch-target-budget'),
     year ? (list.length ? '請選擇目標預算單位' : '此年度沒有有效預算單位') : '請先選擇目標學年度',
-    list.map(b => ({ value: budgetOptionValue(b), label: b.budgetName })),
+    list.map(option => ({
+      value: option.value,
+      label: option.status === 'duplicate'
+        ? `${option.budgetName}（重複 ${option.recordCount} 筆，請先修正）`
+        : option.budgetName,
+      disabled: option.status === 'duplicate',
+      status: option.status
+    })),
     value
   );
   return list;
@@ -903,6 +921,22 @@ export async function handleBatchAddHourSettings() {
   }
   if (!targetAy || !targetBudgetId) {
     showToast('請選擇目標學年度與目標預算單位', 'error');
+    return;
+  }
+
+  // Do not trust select values: re-resolve the name group from current runtime data.
+  const sourceSelected = findBudgetByOptionValue(getBudgets(), sourceBudgetId, sourceAy);
+  const sourceOption = sourceSelected && analyzeBudgetOptionsForYear(getBudgets(), sourceAy).options
+    .find(option => option.budgetName === sourceSelected.budgetName);
+  if (sourceOption?.status === 'duplicate') {
+    showToast(`來源學年度的預算單位「${sourceSelected.budgetName}」存在重複資料，請先至預算設定修正。`, 'error');
+    return;
+  }
+  const targetSelected = findBudgetByOptionValue(getBudgets(), targetBudgetId, targetAy);
+  const targetOption = targetSelected && analyzeBudgetOptionsForYear(getBudgets(), targetAy).options
+    .find(option => option.budgetName === targetSelected.budgetName);
+  if (targetOption?.status === 'duplicate') {
+    showToast(`目標學年度的預算單位「${targetSelected.budgetName}」存在重複資料，請先至預算設定修正。`, 'error');
     return;
   }
 

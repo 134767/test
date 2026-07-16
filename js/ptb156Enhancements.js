@@ -10,10 +10,10 @@ import {
   deleteHolidayName,
   isHolidayNameUsed,
   ensureHolidayNamesFromExistingCalendarHolidays
-} from './dataStore.js?v=1.6.0-hour-budget-batch-hotfix-7';
-import { renderCalendarTable } from './calendarPage.js?v=1.6.0-hour-budget-batch-hotfix-7';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-hour-budget-batch-hotfix-7';
-import { showToast, getDatesInRange, formatDateForDisplay } from './utils.js?v=1.6.0-hour-budget-batch-hotfix-7';
+} from './dataStore.js?v=1.6.0-budget-option-dedup-hotfix-8';
+import { renderCalendarTable } from './calendarPage.js?v=1.6.0-budget-option-dedup-hotfix-8';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-budget-option-dedup-hotfix-8';
+import { showToast, getDatesInRange, formatDateForDisplay } from './utils.js?v=1.6.0-budget-option-dedup-hotfix-8';
 
 let holidayPage = 'settings';
 let holidayRecordPage = 1;

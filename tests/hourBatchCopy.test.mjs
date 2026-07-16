@@ -55,11 +55,50 @@ test('same-name cross-year target auto match is unique only', () => {
   assert.equal(findSameNameTargetBudget(budgets, budgets[0], '116'), null);
 });
 
+test('same-name auto-select accepts repeated runtime copies of one target id', () => {
+  const runtimeRepeated = [...budgets, structuredClone(budgets[2]), structuredClone(budgets[2])];
+  assert.equal(findSameNameTargetBudget(runtimeRepeated, budgets[0], '115')?.id, 'B115A');
+});
+
+test('same-name auto-select rejects distinct target identities', () => {
+  const conflict = [...budgets, { ...budgets[2], id: 'B115A_CONFLICT', unitCodes: ['U_Z'] }];
+  assert.equal(findSameNameTargetBudget(conflict, budgets[0], '115'), null);
+});
+
 test('source and target budget ids are required and year-bound', () => {
   assert.equal(plan({ sourceBudgetId: '' }).ok, false);
   assert.match(plan({ sourceBudgetId: 'B115A' }).error, /來源預算單位/);
   assert.equal(plan({ targetBudgetId: '' }).ok, false);
   assert.match(plan({ targetBudgetId: 'B114A' }).error, /目標預算單位/);
+});
+
+test('duplicate source name blocks planner before copy', () => {
+  const conflict = [...budgets, { ...budgets[0], id: 'B114A_CONFLICT', unitCodes: ['U_Z'] }];
+  const result = plan({ budgets: conflict });
+  assert.equal(result.ok, false);
+  assert.equal(result.toAdd.length, 0);
+  assert.match(result.error, /來源學年度的預算單位/);
+  assert.match(result.error, /存在重複資料/);
+});
+
+test('duplicate target name blocks planner before copy', () => {
+  const conflict = [...budgets, { ...budgets[2], id: 'B115A_CONFLICT', unitCodes: ['U_Z'] }];
+  const result = plan({ budgets: conflict });
+  assert.equal(result.ok, false);
+  assert.equal(result.toAdd.length, 0);
+  assert.match(result.error, /目標學年度的預算單位/);
+  assert.match(result.error, /存在重複資料/);
+});
+
+test('runtime repetitions do not mutate source or target data', () => {
+  const runtimeRepeated = [...budgets, structuredClone(budgets[0]), structuredClone(budgets[2])];
+  const beforeBudgets = structuredClone(runtimeRepeated);
+  const beforeRows = structuredClone(rows);
+  const result = plan({ budgets: runtimeRepeated, sourceIds: ['H1'] });
+  assert.equal(result.ok, true);
+  assert.equal(result.toAdd.length, 1);
+  assert.deepEqual(runtimeRepeated, beforeBudgets);
+  assert.deepEqual(rows, beforeRows);
 });
 
 test('exact target budget scope blocks a unit found only in another target budget', () => {
