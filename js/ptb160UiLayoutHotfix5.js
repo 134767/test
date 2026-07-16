@@ -1,5 +1,7 @@
 // PTB 1.6.0 hotfix-5：統一「預算單位」文案，並簡化行事曆查詢操作。
 
+let calendarGoogleViewsPromise = null;
+
 function setFieldLabel(root, selector, text) {
   const field = root.querySelector(selector);
   const group = field?.closest('.form-group, .query-field');
@@ -86,6 +88,23 @@ function enhanceCalendarBudgetFlow(root) {
   });
 }
 
+function requestCalendarGoogleViews(root) {
+  if (!root || root.dataset.calendarGoogleViewsRequested === 'true') return;
+  if (!root.querySelector('#calendar-table-wrap')) return;
+
+  root.dataset.calendarGoogleViewsRequested = 'true';
+  calendarGoogleViewsPromise ||= import(
+    './calendarGoogleViews.js?v=1.6.0-calendar-google-views-hotfix-1'
+  );
+
+  calendarGoogleViewsPromise
+    .then(module => module.installCalendarGoogleViews(root))
+    .catch(error => {
+      root.dataset.calendarGoogleViewsRequested = 'false';
+      console.error('[行事曆] 週／月／年檢視載入失敗', error);
+    });
+}
+
 export function installPtb160UiLayoutHotfix5() {
   const main = document.getElementById('main-content');
   if (!main || main.dataset.ptb160UiHotfix5 === 'true') return;
@@ -93,7 +112,9 @@ export function installPtb160UiLayoutHotfix5() {
 
   const scan = () => {
     replaceBudgetTerminology(main);
-    enhanceCalendarBudgetFlow(main.querySelector('#page-calendar'));
+    const calendarRoot = main.querySelector('#page-calendar');
+    enhanceCalendarBudgetFlow(calendarRoot);
+    requestCalendarGoogleViews(calendarRoot);
   };
 
   new MutationObserver(scan).observe(main, {
