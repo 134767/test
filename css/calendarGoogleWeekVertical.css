@@ -2,19 +2,20 @@
 
 .ptb-gcal-week-event {
   display: flex;
-  flex-direction: row;
-  align-items: flex-start;
+  flex-direction: column;
+  align-items: center;
   justify-content: flex-start;
-  gap: 2px;
-  padding: 5px 3px;
+  gap: 6px;
+  padding: 5px 2px;
   text-align: start;
 }
 
 .ptb-gcal-week-event strong,
 .ptb-gcal-week-event span {
   display: block;
+  flex: 0 0 auto;
   min-width: 0;
-  max-height: 100%;
+  max-width: 100%;
   margin: 0;
   writing-mode: vertical-rl;
   text-orientation: upright;
@@ -26,18 +27,13 @@
 }
 
 .ptb-gcal-week-event strong {
-  flex: 0 0 auto;
   font-weight: 700;
-}
-
-.ptb-gcal-week-event span {
-  flex: 0 1 auto;
 }
 
 @media (max-width: 820px) {
   .ptb-gcal-week-event {
-    gap: 1px;
-    padding: 4px 2px;
+    gap: 4px;
+    padding: 4px 1px;
   }
 
   .ptb-gcal-week-event strong,
