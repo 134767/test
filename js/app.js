@@ -13,7 +13,7 @@ import { initSalaryEntryPage, renderSalaryEntryPage } from './salaryEntryPage.js
 import { initDifferenceForecastPage, renderDifferenceForecastPage } from './differenceForecastPage.js?v=1.6.0-salary-summary-cards-hotfix-12';
 import { installPtb156Enhancements } from './ptb156Enhancements.js?v=1.6.0-salary-summary-cards-hotfix-12';
 import { installPtb156cUiSyncPatch } from './ptb156cUiSyncPatch.js?v=1.6.0-salary-summary-cards-hotfix-12';
-import { installPtb160UiLayoutHotfix5 } from './ptb160UiLayoutHotfix5.js?v=1.6.0-calendar-google-views-hotfix-2';
+import { installPtb160UiLayoutHotfix5 } from './ptb160UiLayoutHotfix5.js?v=1.6.0-calendar-google-views-hotfix-3';
 
 let mainContainer = null;
 let tabButtons = {};
