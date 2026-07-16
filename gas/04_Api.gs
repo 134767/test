@@ -1,7 +1,12 @@
-function getWorkStudyBootstrapData(payload,ctx){var c=getAppConfig_(ctx),data={};Object.keys(PTB_TABLES).forEach(function(k){data[k]=(k==='scheduleTypes'||k==='holidayNames')?readOptionalTable_(k,ctx):readTable_(k,ctx);});return {ok:true,appVersion:c.appVersion,assetVersion:c.staticAssetVersion,writeMode:c.writeMode,data:data};}
+function getWorkStudyBootstrapData(payload,ctx){
+  var c=getAppConfig_(ctx),data={};
+  Object.keys(PTB_TABLES).forEach(function(k){data[k]=(k==='scheduleTypes'||k==='holidayNames')?readOptionalTable_(k,ctx):readTable_(k,ctx);});
+  return {ok:true,appVersion:c.appVersion,assetVersion:c.staticAssetVersion,writeMode:c.writeMode,data:data};
+}
 
 function replaceCollectionInternal_(payload,ctx){
-  var key=cleanString_(payload&&payload.collection);if(!PTB_REPLACEABLE_COLLECTIONS[key])throw ptbError_('INVALID_COLLECTION','不允許 replace collection',{collection:key});
+  var key=cleanString_(payload&&payload.collection);
+  if(!PTB_REPLACEABLE_COLLECTIONS[key])throw ptbError_('INVALID_COLLECTION','不允許 replace collection',{collection:key});
   var validationStarted=Date.now(),candidates=normalizeAndValidateCollections_(ctx,(function(){var o={};o[key]=payload.rows;return o;}())),validationMs=Date.now()-validationStarted,writeStarted=Date.now();
   var rows=replaceTableRows_(ctx,key,candidates[key]),writeMs=Date.now()-writeStarted;
   return {collection:key,rows:rows,clientGeneration:payload.clientGeneration,clientMutationId:cleanString_(payload.clientMutationId),timings:{totalMs:Date.now()-ctx.startedAt,validationMs:validationMs,writeMs:writeMs}};
@@ -9,7 +14,16 @@ function replaceCollectionInternal_(payload,ctx){
 function replaceCollection(payload,ctx){getAppConfig_(ctx);return withWriteLock_(ctx,function(){return replaceCollectionInternal_(payload||{},ctx);});}
 
 function replaceCollectionsBatch(payload,ctx){
-  getAppConfig_(ctx);return withWriteLock_(ctx,function(){var raw=payload&&payload.collections;if(!raw||Object.prototype.toString.call(raw)!=='[object Object]'||!Object.keys(raw).length)throw ptbError_('VALIDATION_ERROR','collections 不可空白');var names=Object.keys(raw);names.forEach(function(key){if(!PTB_REPLACEABLE_COLLECTIONS[key])throw ptbError_('INVALID_COLLECTION','不允許 replace collection',{collection:key});});var validationStarted=Date.now(),candidates=normalizeAndValidateCollections_(ctx,raw),validationMs=Date.now()-validationStarted,writeStarted=Date.now(),out={};names.forEach(function(key){out[key]=replaceTableRows_(ctx,key,candidates[key]);});return {collections:out,clientMutationId:cleanString_(payload.clientMutationId),timings:{totalMs:Date.now()-ctx.startedAt,validationMs:validationMs,writeMs:Date.now()-writeStarted}};});
+  getAppConfig_(ctx);
+  return withWriteLock_(ctx,function(){
+    var raw=payload&&payload.collections;
+    if(!raw||Object.prototype.toString.call(raw)!=='[object Object]'||!Object.keys(raw).length)throw ptbError_('VALIDATION_ERROR','collections 不可空白');
+    var names=Object.keys(raw);
+    names.forEach(function(key){if(!PTB_REPLACEABLE_COLLECTIONS[key])throw ptbError_('INVALID_COLLECTION','不允許 replace collection',{collection:key});});
+    var validationStarted=Date.now(),candidates=normalizeAndValidateCollections_(ctx,raw),validationMs=Date.now()-validationStarted,writeStarted=Date.now(),out={};
+    names.forEach(function(key){out[key]=replaceTableRows_(ctx,key,candidates[key]);});
+    return {collections:out,clientMutationId:cleanString_(payload.clientMutationId),timings:{totalMs:Date.now()-ctx.startedAt,validationMs:validationMs,writeMs:Date.now()-writeStarted}};
+  });
 }
 
 // Deprecated compatibility path. Current UI business mutations use replaceCollection(s).
@@ -33,4 +47,24 @@ function deleteCalendarRowsByScope(payload,ctx){getAppConfig_(ctx);return withWr
 function inspectSalaryEntryDuplicates(payload,ctx){return {duplicates:inspectSalaryEntryDuplicateKeys_(readTable_('salaryEntries',ctx))};}
 
 var PTB_ACTIONS=Object.freeze({getWorkStudyBootstrapData:getWorkStudyBootstrapData,replaceCollection:replaceCollection,replaceCollectionsBatch:replaceCollectionsBatch,inspectSalaryEntryDuplicates:inspectSalaryEntryDuplicates,saveBudget:saveBudget,deleteBudget:deleteBudget,saveUnit:saveUnit,deleteUnit:deleteUnit,saveHourSetting:saveHourSetting,saveHourSettingsBatch:saveHourSettingsBatch,deleteHourSettings:deleteHourSettings,saveCalendarPeriod:saveCalendarPeriod,deleteCalendarPeriods:deleteCalendarPeriods,saveCalendarRowsBatch:saveCalendarRowsBatch,deleteCalendarRowsByScope:deleteCalendarRowsByScope,saveCalendarHoliday:saveCalendarHoliday,deleteCalendarHoliday:deleteCalendarHoliday,saveSalaryEntry:saveSalaryEntry,deleteSalaryEntry:deleteSalaryEntry,saveForecastEvaluation:saveForecastEvaluation,deleteForecastEvaluation:deleteForecastEvaluation,saveScheduleType:saveScheduleType,deleteScheduleType:deleteScheduleType,saveHolidayName:saveHolidayName,deleteHolidayName:deleteHolidayName});
-function runServerFunction(action,payload){var ctx=createRequestContext_();try{var fn=PTB_ACTIONS[action];if(!fn)throw ptbError_('INVALID_ACTION','不允許的操作');var value=fn(payload||{},ctx);return value&&value.ok!==undefined?value:{ok:true,result:value};}catch(e){return publicError_(e);}}
+
+function attachPerformance_(response,ctx){
+  var performance=getPerformanceSnapshot_(ctx);
+  response.performance=performance;
+  try{performance.responsePayloadChars=JSON.stringify(response).length;}catch(e){performance.responsePayloadChars=0;}
+  return response;
+}
+
+function runServerFunction(action,payload){
+  var ctx=createRequestContext_();
+  ctx.action=cleanString_(action);
+  try{ctx.requestPayloadChars=JSON.stringify(payload||{}).length;}catch(ignore){ctx.requestPayloadChars=0;}
+  try{
+    var fn=PTB_ACTIONS[action];
+    if(!fn)throw ptbError_('INVALID_ACTION','不允許的操作');
+    var value=fn(payload||{},ctx),response=value&&value.ok!==undefined?value:{ok:true,result:value};
+    return attachPerformance_(response,ctx);
+  }catch(e){
+    return attachPerformance_(publicError_(e),ctx);
+  }
+}

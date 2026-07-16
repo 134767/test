@@ -1,5 +1,5 @@
 var PTB_VERSION = '1.6.0';
-var PTB_ASSET_VERSION = '1.6.0-salary-summary-cards-hotfix-12';
+var PTB_ASSET_VERSION = '1.6.0-data-performance-instrumentation-1';
 var PTB_PROPERTY_KEYS = Object.freeze({ spreadsheetId:'PTB_SPREADSHEET_ID', githubBaseUrl:'PTB_GITHUB_PAGES_BASE_URL', appVersion:'PTB_APP_VERSION', assetVersion:'PTB_STATIC_ASSET_VERSION', writeMode:'PTB_WRITE_MODE', testMode:'PTB_TEST_MODE', schemaMigrationApproval:'PTB_SCHEMA_MIGRATION_APPROVAL' });
 var PTB_TABLES = Object.freeze({
   budgets:{sheet:'01_budgets',headers:['id','academicYear','budgetAmount','note','createdAt','updatedAt','budgetName','unitCodes']},
@@ -17,7 +17,11 @@ var PTB_REPLACEABLE_COLLECTIONS = Object.freeze({budgets:true,units:true,hourSet
 var PTB_JSON_FIELDS = Object.freeze({unitCodes:true,intervals:true});
 var PTB_NUMERIC_FIELDS = Object.freeze({budgetAmount:true,hours:true,hourlyWage:true,actualHours:true,actualAmount:true,budget:true,baseHourlyWage:true});
 
-function createRequestContext_(){return {config:null,spreadsheet:null,sheets:{},headers:{},collections:{},timings:{},startedAt:Date.now()};}
+function createRequestContext_(){return {config:null,spreadsheet:null,sheets:{},headers:{},collections:{},timings:{spreadsheetOpenMs:0,headerReadMs:0,sheetReadMs:0,sheetWriteMs:0,lockWaitMs:0,lockHoldMs:0},tableTimings:{read:{},write:{}},rowCounts:{read:{},write:{}},cacheHits:{collections:0,headers:0,sheets:0,spreadsheet:0},startedAt:Date.now(),action:'',requestPayloadChars:0};}
+function addTiming_(ctx,key,ms){if(!ctx)return;if(!ctx.timings)ctx.timings={};ctx.timings[key]=Number(ctx.timings[key]||0)+Math.max(0,Number(ms)||0);}
+function addTableTiming_(ctx,mode,key,ms,rowCount){if(!ctx)return;if(!ctx.tableTimings)ctx.tableTimings={read:{},write:{}};if(!ctx.tableTimings[mode])ctx.tableTimings[mode]={};ctx.tableTimings[mode][key]=Number(ctx.tableTimings[mode][key]||0)+Math.max(0,Number(ms)||0);if(!ctx.rowCounts)ctx.rowCounts={read:{},write:{}};if(!ctx.rowCounts[mode])ctx.rowCounts[mode]={};ctx.rowCounts[mode][key]=Number(rowCount)||0;}
+function markCacheHit_(ctx,key){if(!ctx)return;if(!ctx.cacheHits)ctx.cacheHits={};ctx.cacheHits[key]=Number(ctx.cacheHits[key]||0)+1;}
+function getPerformanceSnapshot_(ctx){return {action:ctx.action||'',totalMs:Date.now()-ctx.startedAt,requestPayloadChars:Number(ctx.requestPayloadChars||0),timings:Object.assign({},ctx.timings||{}),tableTimings:{read:Object.assign({},ctx.tableTimings&&ctx.tableTimings.read||{}),write:Object.assign({},ctx.tableTimings&&ctx.tableTimings.write||{})},rowCounts:{read:Object.assign({},ctx.rowCounts&&ctx.rowCounts.read||{}),write:Object.assign({},ctx.rowCounts&&ctx.rowCounts.write||{})},cacheHits:Object.assign({},ctx.cacheHits||{})};}
 function getAppConfig_(ctx){
   if(ctx&&ctx.config)return ctx.config;
   var p=PropertiesService.getScriptProperties(),c={spreadsheetId:(p.getProperty(PTB_PROPERTY_KEYS.spreadsheetId)||'').trim(),githubPagesBaseUrl:(p.getProperty(PTB_PROPERTY_KEYS.githubBaseUrl)||'').trim().replace(/\/+$/,''),appVersion:(p.getProperty(PTB_PROPERTY_KEYS.appVersion)||PTB_VERSION).trim(),staticAssetVersion:(p.getProperty(PTB_PROPERTY_KEYS.assetVersion)||PTB_ASSET_VERSION).trim(),writeMode:(p.getProperty(PTB_PROPERTY_KEYS.writeMode)||'enabled').trim(),testMode:(p.getProperty(PTB_PROPERTY_KEYS.testMode)||'disabled').trim(),schemaMigrationApproval:(p.getProperty(PTB_PROPERTY_KEYS.schemaMigrationApproval)||'disabled').trim(),allowLocalFallback:false};

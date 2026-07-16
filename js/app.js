@@ -13,6 +13,7 @@ import { initDifferenceForecastPage, renderDifferenceForecastPage } from './diff
 import { installPtb156Enhancements } from './ptb156Enhancements.js?v=1.6.0-salary-summary-cards-hotfix-12';
 import { installPtb156cUiSyncPatch } from './ptb156cUiSyncPatch.js?v=1.6.0-salary-summary-cards-hotfix-12';
 import { installPtb160UiLayoutHotfix5 } from './ptb160UiLayoutHotfix5.js?v=1.6.0-calendar-period-ui-hotfix-1';
+import { installPerformanceInstrumentation } from './performanceInstrumentation.js?v=1.6.0-data-performance-instrumentation-1';
 
 let mainContainer = null;
 let tabButtons = {};
@@ -209,6 +210,7 @@ function renderBootstrapFailure(error) {
 export async function bootstrap() {
   installGasRuntimeCompatibility();
   installDbFeedback();
+  installPerformanceInstrumentation();
   installPtb156cUiSyncPatch();
 
   const initToken = beginDbOperation('資料載入中', { blocking: true });
