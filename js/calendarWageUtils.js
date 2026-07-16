@@ -47,14 +47,14 @@ export function getCalendarWagePreviewText(value) {
     : '本次套用時薪：尚未輸入有效時薪';
 }
 
-export function buildCalendarRowFromHourSetting({ date, academicYear, weekday, match, hourlyWage }) {
+export function buildCalendarRowFromHourSetting({ date, academicYear, weekday, match, hourlyWage, unitNameSnapshot }) {
   return {
     date,
     academicYear,
     weekday,
     scheduleType: match.scheduleType,
     unitCode: match.unitCode,
-    unitName: match.unitName,
+    unitName: String(unitNameSnapshot || '').trim() || String(match.unitName || '').trim(),
     startTime: match.startTime,
     endTime: match.endTime,
     hours: match.hours,

@@ -477,9 +477,10 @@ function _snapshotCollections() {
 
 
 // 初始化：localStorage 模式沿用 seedData；GAS Shell 模式啟動時一次載入 Sheet 到前端 cache。
-import { beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-batch-search-style-hotfix-10';
-import { loadCsvDb, exportCsvDbSnapshot } from './csvDb.js?v=1.6.0-batch-search-style-hotfix-10';
-import { normalizeBudgetRecord, normalizeBudgetUnitCodes } from './budgetGroupUtils.js?v=1.6.0-batch-search-style-hotfix-10';
+import { beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
+import { loadCsvDb, exportCsvDbSnapshot } from './csvDb.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
+import { normalizeBudgetRecord, normalizeBudgetUnitCodes } from './budgetGroupUtils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
+import { normalizeForecastEvaluationRecord, normalizeForecastEvaluations } from './forecastEvaluationUtils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
 import {
   seedBudgets,
   seedUnits,
@@ -487,7 +488,7 @@ import {
   seedCalendarPeriods,
   seedCalendarRows,
   seedCalendarHolidays
-} from './seedData.js?v=1.6.0-batch-search-style-hotfix-10';
+} from './seedData.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
 
 export async function initDataStore() {
   _dataMode = _detectDataMode();
@@ -1626,7 +1627,7 @@ export function getSalaryEntriesByDateRange(startYm, endYm) {
 
 // ===== FORECAST EVALUATIONS (新增專用，僅用於差額與預估頁的未來評估方案) =====
 export function getForecastEvaluations() {
-  return [..._getCollection('forecastEvaluations')];
+  return normalizeForecastEvaluations(_getCollection('forecastEvaluations'));
 }
 
 export function generateForecastEvaluationId() {
@@ -1634,50 +1635,19 @@ export function generateForecastEvaluationId() {
 }
 
 export async function saveForecastEvaluation(evaluation) {
-  if (_dataMode === 'gasSheet') return _saveCollectionRecord('forecastEvaluations', evaluation, 'FORECAST');
-  const list = _getCollection('forecastEvaluations');
-  const now = new Date().toISOString();
-  let newItem;
-
-  if (evaluation.id) {
-    // update existing
-    const idx = list.findIndex(ev => ev.id === evaluation.id);
-    if (idx !== -1) {
-      newItem = {
-        ...list[idx],
-        ...evaluation,
-        updatedAt: now
-      };
-      list[idx] = newItem;
-    } else {
-      // id not found, treat as new
-      newItem = {
-        id: evaluation.id || generateForecastEvaluationId(),
-        name: evaluation.name || '',
-        budget: Number(evaluation.budget) || 0,
-        baseHourlyWage: Number(evaluation.baseHourlyWage) || 0,
-        intervals: Array.isArray(evaluation.intervals) ? evaluation.intervals : [],
-        createdAt: now,
-        updatedAt: now
-      };
-      list.push(newItem);
-    }
-  } else {
-    // new
-    newItem = {
-      id: generateForecastEvaluationId(),
-      name: evaluation.name || '',
-      budget: Number(evaluation.budget) || 0,
-      baseHourlyWage: Number(evaluation.baseHourlyWage) || 0,
-      intervals: Array.isArray(evaluation.intervals) ? evaluation.intervals : [],
-      createdAt: now,
-      updatedAt: now
-    };
-    list.push(newItem);
-  }
-
-  _setCollection('forecastEvaluations', list);
-  return newItem;
+  const normalized = normalizeForecastEvaluationRecord(evaluation || {});
+  const payload = {
+    ...(normalized.id ? { id: normalized.id } : {}),
+    name: normalized.name,
+    budget: normalized.budget,
+    baseHourlyWage: normalized.baseHourlyWage,
+    intervals: normalized.intervals
+  };
+  const saved = await _saveCollectionRecord('forecastEvaluations', payload, 'FE', value => value);
+  const normalizedRows = normalizeForecastEvaluations(_getCollection('forecastEvaluations'));
+  _cache.forecastEvaluations = normalizedRows;
+  if (_dataMode === 'gasSheet') _stateFor('forecastEvaluations').confirmedRows = _clone(normalizedRows);
+  return normalizedRows.find(record => record.id === String(saved?.id || '')) || normalizeForecastEvaluationRecord(saved);
 }
 
 export async function deleteForecastEvaluation(id) {

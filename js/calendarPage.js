@@ -24,8 +24,8 @@ import {
   deleteHolidayName,
   isHolidayNameUsed,
   ensureHolidayNamesFromExistingCalendarHolidays
-} from './dataStore.js?v=1.6.0-batch-search-style-hotfix-10';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-batch-search-style-hotfix-10';
+} from './dataStore.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
 import {
   showToast,
   isValidDate,
@@ -38,7 +38,7 @@ import {
   bindDatePickerField,
   inferAcademicYearFromDate,
   renderPagination
-} from './utils.js?v=1.6.0-batch-search-style-hotfix-10';
+} from './utils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
 import {
   getDistinctValidBudgetNames,
   getYearsForBudgetName,
@@ -46,7 +46,7 @@ import {
   filterCalendarRowsByBudgetScope,
   getAllowedUnitCodesForBudgetNameYear,
   getDuplicateBudgetNameYears
-} from './hourBudgetScopeUtils.js?v=1.6.0-batch-search-style-hotfix-10';
+} from './hourBudgetScopeUtils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
 import {
   CALENDAR_WAGE_YEAR_WARNING,
   buildCalendarRowFromHourSetting,
@@ -54,7 +54,7 @@ import {
   getCalendarWagePreviewText,
   validateCalendarIntervalRange,
   validateIntervalHourlyWage
-} from './calendarWageUtils.js?v=1.6.0-batch-search-style-hotfix-10';
+} from './calendarWageUtils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
 
 let containerEl = null;
 
@@ -238,27 +238,42 @@ export function initCalendarPage(container) {
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label>作息類型 <span class="required">*</span></label>
+              <div class="interval-choice-heading">
+                <label>作息類型 <span class="required">*</span></label>
+                <div><button type="button" id="int-schedule-select-all" class="btn-secondary btn-compact">全選</button> <button type="button" id="int-schedule-clear-all" class="btn-secondary btn-compact">清除</button></div>
+              </div>
               <div id="int-scheduleType-buttons" class="weekday-buttons"></div>
             </div>
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label>單位 <span class="required">*</span></label>
+              <div class="interval-choice-heading">
+                <label>單位 <span class="required">*</span></label>
+                <div><button type="button" id="int-unit-select-all" class="btn-secondary btn-compact">全選</button> <button type="button" id="int-unit-clear-all" class="btn-secondary btn-compact">清除</button></div>
+              </div>
               <div id="int-unit-buttons" class="weekday-buttons"></div>
             </div>
           </div>
 
           <div class="preview-box">
-            <div class="preview-title">套用規則預覽</div>
+            <div class="interval-preview-heading">
+              <div class="preview-title">套用規則預覽</div>
+              <div id="int-delete-preview-actions" hidden>
+                <label><input type="checkbox" id="int-delete-preview-all-check"> 全選預覽</label>
+                <button type="button" id="int-delete-preview-select-all" class="btn-secondary btn-compact">全選</button>
+                <button type="button" id="int-delete-preview-clear-all" class="btn-secondary btn-compact">清除</button>
+              </div>
+            </div>
             <div id="int-preview"></div>
           </div>
+
+          <div id="interval-operation-result" class="interval-operation-result" hidden aria-live="polite"></div>
 
           <div class="help-text">系統會自動依選取條件套用符合的時數設定到日期區間內的對應星期。</div>
         </div>
         <div class="modal-footer">
           <button id="int-confirm-btn" class="btn-primary">儲存</button>
-          <button id="int-cancel-btn" class="btn-secondary">取消</button>
+          <button id="int-cancel-btn" class="btn-secondary">退出</button>
         </div>
       </div>
     </div>
@@ -357,8 +372,17 @@ function bindCalendarEvents() {
 
   iConfirm.addEventListener('click', handleIntervalConfirm);
   iCancel.addEventListener('click', () => hideIntervalModal());
-  iModal.addEventListener('click', e => { if (e.target === iModal) hideIntervalModal(); });
   iWage.addEventListener('input', updateIntervalPreview);
+  containerEl.querySelector('#int-schedule-select-all')?.addEventListener('click', selectAllIntervalScheduleTypes);
+  containerEl.querySelector('#int-schedule-clear-all')?.addEventListener('click', clearAllIntervalScheduleTypes);
+  containerEl.querySelector('#int-unit-select-all')?.addEventListener('click', selectAllIntervalUnits);
+  containerEl.querySelector('#int-unit-clear-all')?.addEventListener('click', clearAllIntervalUnits);
+  containerEl.querySelector('#int-delete-preview-select-all')?.addEventListener('click', selectAllDeletePreviewSources);
+  containerEl.querySelector('#int-delete-preview-clear-all')?.addEventListener('click', clearAllDeletePreviewSources);
+  containerEl.querySelector('#int-delete-preview-all-check')?.addEventListener('change', event => {
+    if (event.target.checked) selectAllDeletePreviewSources();
+    else clearAllDeletePreviewSources();
+  });
 
   // Holiday modal bindings
   const hModal = containerEl.querySelector('#holiday-modal');
@@ -934,6 +958,13 @@ function showIntervalModal(mode) {
 
   title.textContent = mode === 'add' ? '新增作息區間' : '刪除作息區間';
   confirmBtn.textContent = mode === 'add' ? '儲存' : '確定';
+  const deleteActions = containerEl.querySelector('#int-delete-preview-actions');
+  if (deleteActions) deleteActions.hidden = mode !== 'delete';
+  const operationResult = containerEl.querySelector('#interval-operation-result');
+  if (operationResult) {
+    operationResult.hidden = true;
+    operationResult.textContent = '';
+  }
 
   // reset
   containerEl.querySelector('#int-start').value = '';
@@ -1145,6 +1176,70 @@ function populateUnitButtonsForInterval(reset = false) {
   });
 }
 
+function selectAllIntervalScheduleTypes() {
+  const visible = [...containerEl.querySelectorAll('#int-scheduleType-buttons .weekday-btn')]
+    .map(button => button.dataset.value)
+    .filter(Boolean);
+  selectedIntervalScheduleTypes = new Set(visible);
+  selectedIntervalUnitCodes.clear();
+  selectedSourceIdsForDelete.clear();
+  populateScheduleTypeButtonsForInterval(false);
+  populateUnitButtonsForInterval(false);
+  updateIntervalPreview();
+}
+
+function clearAllIntervalScheduleTypes() {
+  selectedIntervalScheduleTypes.clear();
+  selectedIntervalUnitCodes.clear();
+  selectedSourceIdsForDelete.clear();
+  populateScheduleTypeButtonsForInterval(false);
+  populateUnitButtonsForInterval(false);
+  updateIntervalPreview();
+}
+
+function selectAllIntervalUnits() {
+  const visible = [...containerEl.querySelectorAll('#int-unit-buttons .weekday-btn')]
+    .map(button => button.dataset.value)
+    .filter(Boolean);
+  selectedIntervalUnitCodes = new Set(visible);
+  selectedSourceIdsForDelete.clear();
+  populateUnitButtonsForInterval(false);
+  updateIntervalPreview();
+}
+
+function clearAllIntervalUnits() {
+  selectedIntervalUnitCodes.clear();
+  selectedSourceIdsForDelete.clear();
+  populateUnitButtonsForInterval(false);
+  updateIntervalPreview();
+}
+
+function getVisibleDeletePreviewSourceIds() {
+  return [...containerEl.querySelectorAll('#int-preview .del-source-cb')]
+    .map(checkbox => checkbox.dataset.id)
+    .filter(Boolean);
+}
+
+function updateDeletePreviewSelectionUi() {
+  const visible = getVisibleDeletePreviewSourceIds();
+  const selected = visible.filter(id => selectedSourceIdsForDelete.has(id)).length;
+  const all = containerEl.querySelector('#int-delete-preview-all-check');
+  if (all) {
+    all.checked = visible.length > 0 && selected === visible.length;
+    all.indeterminate = selected > 0 && selected < visible.length;
+  }
+}
+
+function selectAllDeletePreviewSources() {
+  selectedSourceIdsForDelete = new Set(getVisibleDeletePreviewSourceIds());
+  updateIntervalPreview();
+}
+
+function clearAllDeletePreviewSources() {
+  selectedSourceIdsForDelete.clear();
+  updateIntervalPreview();
+}
+
 function getSelectedIntervalScheduleTypes() {
   return Array.from(selectedIntervalScheduleTypes);
 }
@@ -1193,6 +1288,7 @@ function updateIntervalPreview() {
     div.style.color = color;
     div.textContent = message;
     previewEl.appendChild(div);
+    updateDeletePreviewSelectionUi();
   };
 
   if (!ay) {
@@ -1221,6 +1317,10 @@ function updateIntervalPreview() {
   ul.className = 'preview-list';
 
   const isDeleteMode = intervalModalMode === 'delete';
+  if (isDeleteMode) {
+    const visibleIds = new Set(matches.map(match => String(match.id)));
+    selectedSourceIdsForDelete = new Set([...selectedSourceIdsForDelete].filter(id => visibleIds.has(String(id))));
+  }
 
   matches.forEach(m => {
     const div = document.createElement('div');
@@ -1250,6 +1350,7 @@ function updateIntervalPreview() {
         } else {
           selectedSourceIdsForDelete.delete(m.id);
         }
+        updateDeletePreviewSelectionUi();
       });
     } else {
       div.innerHTML = content;
@@ -1259,6 +1360,7 @@ function updateIntervalPreview() {
   });
 
   previewEl.appendChild(ul);
+  updateDeletePreviewSelectionUi();
 }
 
 async function handleIntervalConfirm() {
@@ -1312,6 +1414,9 @@ async function handleIntervalConfirm() {
       return;
     }
     const intervalHourlyWage = wageValidation.hourlyWage;
+    const unitNameByCode = new Map(
+      getUnits().map(unit => [String(unit.unitCode || ''), String(unit.unitName || '')])
+    );
     // 自動建立缺少的 period
     const rowsToAdd = [];
     let skippedHolidayCount = 0;
@@ -1332,18 +1437,24 @@ async function handleIntervalConfirm() {
           academicYear: ay,
           weekday: wd,
           match,
-          hourlyWage: intervalHourlyWage
+          hourlyWage: intervalHourlyWage,
+          unitNameSnapshot:
+            unitNameByCode.get(String(match.unitCode || '')) ||
+            String(match.unitName || '')
         }));
       });
     });
 
     let batch; try { batch=await runWithMutationUiLock(containerEl.querySelector('#int-confirm-btn'),()=>saveCalendarPeriodRowsBatch(dates.map(d=>({date:d,weekday:getWeekdayFromDate(d)})),rowsToAdd),{blocking:true}); } catch { return; }
     const added = batch.addedRecords || [];
-    let msg = `作息區間新增完成（新增 ${added.length} 筆）`;
-    if (skippedHolidayCount > 0) {
-      msg += `，已略過 ${skippedHolidayCount} 個假日日期`;
-    }
+    const skippedDuplicateCount = Math.max(0, rowsToAdd.length - added.length);
+    const msg = `新增完成：新增 ${added.length} 筆，略過 ${skippedHolidayCount} 個假日／${skippedDuplicateCount} 筆重複資料。您可以繼續調整，或按「退出」關閉。`;
     showToast(msg);
+    const result = containerEl.querySelector('#interval-operation-result');
+    if (result) {
+      result.textContent = msg;
+      result.hidden = false;
+    }
   } else {
     // 刪除作息區間（只刪 rows）
     if (!confirm('確定刪除此條件範圍內的作息區間資料？（日期週期不會被刪除）')) return;
@@ -1356,12 +1467,18 @@ async function handleIntervalConfirm() {
     const idsToDelete = Array.from(selectedSourceIdsForDelete);
     try { await runWithMutationUiLock(containerEl.querySelector('#int-confirm-btn'),()=>deleteCalendarRowsByScope({selectedBudgetName:calendarFilter.selectedBudgetName,startDate:start,endDate:end,academicYear:ay,sourceHourSettingIds:idsToDelete}),{blocking:true}); } catch { return; }
 
-    showToast(`作息區間刪除完成（已針對 ${idsToDelete.length} 筆設定）`);
+    const msg = `刪除完成：已處理 ${idsToDelete.length} 筆來源設定。您可以繼續調整，或按「退出」關閉。`;
+    showToast(msg);
     selectedSourceIdsForDelete.clear();
+    const result = containerEl.querySelector('#interval-operation-result');
+    if (result) {
+      result.textContent = msg;
+      result.hidden = false;
+    }
   }
 
-  hideIntervalModal();
   renderCalendarTable();
+  updateIntervalPreview();
 }
 
 // ===== HOLIDAY MODAL (minimal) =====

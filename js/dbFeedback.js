@@ -16,7 +16,7 @@ function ensureDom() {
       <div class="db-feedback-dialog">
         <div class="db-feedback-spinner" aria-hidden="true"></div>
         <div>
-          <div id="db-feedback-overlay-title" class="db-feedback-title">資料處理中</div>
+          <div id="db-feedback-overlay-title" class="db-feedback-title">資料更新中</div>
           <div id="db-feedback-overlay-message" class="db-feedback-message">正在與資料庫同步，請勿重複點擊。</div>
         </div>
       </div>
@@ -76,7 +76,7 @@ function renderBusy() {
   const detail = activeOps.size > 1 ? `目前有 ${activeOps.size} 個資料庫動作處理中，請勿重複點擊。` : '正在與資料庫同步，請勿重複點擊。';
 
   if (isBlocking()) {
-    if (overlayTitle) overlayTitle.textContent = '資料載入中';
+    if (overlayTitle) overlayTitle.textContent = '資料更新中';
     if (overlayMessage) overlayMessage.textContent = message;
     if (overlay) overlay.classList.remove('is-hidden');
   } else if (overlay) {

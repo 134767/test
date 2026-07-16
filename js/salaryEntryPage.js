@@ -1,6 +1,6 @@
-import { getBudgets, getCalendarRows, saveSalaryEntriesBatch, getSalaryEntriesByAcademicYear, getSalaryEntriesByDateRange, getUnits } from './dataStore.js?v=1.6.0-batch-search-style-hotfix-10';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-batch-search-style-hotfix-10';
-import { showToast, formatNumber } from './utils.js?v=1.6.0-batch-search-style-hotfix-10';
+import { getBudgets, getCalendarRows, saveSalaryEntriesBatch, getSalaryEntriesByAcademicYear, getSalaryEntriesByDateRange, getUnits } from './dataStore.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
+import { showToast, formatNumber } from './utils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
 import {
   getDistinctBudgetNames,
   getBudgetYearsForName,
@@ -14,8 +14,8 @@ import {
   validateYm,
   getAcademicYearFromYm,
   evaluateMonthRegistrationForGroup
-} from './budgetGroupUtils.js?v=1.6.0-batch-search-style-hotfix-10';
-import { sortUnitCodesByUnitSettings, calculateMonthlyActualTotal } from './salaryMonthUtils.js?v=1.6.0-batch-search-style-hotfix-10';
+} from './budgetGroupUtils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
+import { sortUnitCodesByUnitSettings, calculateMonthlyActualTotal } from './salaryMonthUtils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
 
 let containerEl = null;
 let salaryFilter = { budgetName: '', mode: 'academicYear', academicYear: '', startYm: '', endYm: '', queried: false };
@@ -471,7 +471,10 @@ function populateModalYearMonth() {
   }
 
   const budget = getBudgets().find(b => String(b.academicYear) === String(ay) && b.budgetName === salaryFilter.budgetName);
-  const unitCodes = normalizeBudgetUnitCodes(budget && budget.unitCodes);
+  const unitCodes = sortUnitCodesByUnitSettings(
+    normalizeBudgetUnitCodes(budget && budget.unitCodes),
+    getUnits()
+  );
   const existing = getSalaryEntriesByAcademicYear(ay);
   const defaultYm = findRecentUnregisteredMonth(ay, unitCodes, existing, getCalendarRows());
   if (validateYm(defaultYm)) {
@@ -492,7 +495,10 @@ function renderModalUnitTable() {
   const tbody = containerEl.querySelector('#sal-unit-tbody');
 
   const budget = getBudgets().find(b => String(b.academicYear) === String(ay) && b.budgetName === salaryFilter.budgetName);
-  const unitCodes = normalizeBudgetUnitCodes(budget && budget.unitCodes);
+  const unitCodes = sortUnitCodesByUnitSettings(
+    normalizeBudgetUnitCodes(budget && budget.unitCodes),
+    getUnits()
+  );
   const existing = getSalaryEntriesByAcademicYear(ay).filter(e => Number(e.year) === y && Number(e.month) === m);
   const monthRows = getCalendarRows().filter(r => String(r.academicYear) === String(ay) && getYmFromDate(r.date) === ym);
 

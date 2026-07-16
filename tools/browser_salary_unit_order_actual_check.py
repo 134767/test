@@ -41,9 +41,9 @@ def main():
             unitCode:u.unitCode,unitName:u.unitName,startTime:'08:00',endTime:'09:00',hours:1,hourlyWage:190,sourceHourSettingId:`OH_${ui}`
           })));
           const entries = [
-            {id:'E1',academicYear:'114',year:2025,month:8,unitCode:'U1',actualAmount:100,note:''},
-            {id:'E2',academicYear:'114',year:2025,month:8,unitCode:'U2',actualAmount:200,note:''},
-            {id:'E3',academicYear:'114',year:2025,month:8,unitCode:'U3',actualAmount:300,note:''},
+            {id:'E1',academicYear:'114',year:2025,month:8,unitCode:'U1',actualAmount:100,hourlyWage:191,note:'note-U1'},
+            {id:'E2',academicYear:'114',year:2025,month:8,unitCode:'U2',actualAmount:200,hourlyWage:192,note:'note-U2'},
+            {id:'E3',academicYear:'114',year:2025,month:8,unitCode:'U3',actualAmount:300,hourlyWage:193,note:'note-U3'},
             {id:'E4',academicYear:'114',year:2025,month:9,unitCode:'U1',actualAmount:50,note:''},
             {id:'E5',academicYear:'114',year:2025,month:9,unitCode:'U3',actualAmount:25,note:''},
             {id:'E6',academicYear:'114',year:2025,month:8,unitCode:'OUT',actualAmount:999,note:''}
@@ -72,6 +72,18 @@ def main():
         OUT["checks"]["monthly_actual_totals"] = before['fixedValues'][3] == ['600', '75', '0']
         OUT["checks"]["remaining_no_double_subtract"] = before['fixedValues'][4] == ['400', '325', '325']
 
+        page.click('#btn-open-salary-modal')
+        page.select_option('#sal-modal-ay', '114')
+        page.select_option('#sal-modal-year', '2025')
+        page.select_option('#sal-modal-month', '8')
+        modal_before = page.evaluate("""() => [...document.querySelectorAll('#sal-unit-tbody tr')].map(tr => ({
+          unit: tr.cells[0].textContent.trim(), amount: tr.querySelector('input[type="number"]').value,
+          note: tr.querySelector('input[type="text"]').value
+        }))""")
+        OUT["checks"]["modal_unit_order"] = [row['unit'].split('時薪：')[0] for row in modal_before] == expected
+        OUT["checks"]["modal_input_index_safe"] = [row['amount'] for row in modal_before] == ['300', '100', '200', '0'] and [row['note'] for row in modal_before] == ['note-U3', 'note-U1', 'note-U2', '']
+        page.click('#sal-modal-cancel')
+
         page.locator('[data-tab="unit"]').click()
         page.locator('.btn-unit-move[data-id="OU3"][data-direction="down"]').click()
         page.wait_for_timeout(300)
@@ -80,9 +92,15 @@ def main():
         after = table_state(page)
         moved = ['國璽流通', '濟時典藏', '公博流通', '濟時流通']
         OUT["checks"]["move_order_reflected"] = after['summary'] == moved and after['detail'] == moved
+        page.click('#btn-open-salary-modal')
+        page.select_option('#sal-modal-ay', '114')
+        page.select_option('#sal-modal-year', '2025')
+        page.select_option('#sal-modal-month', '8')
+        modal_after = page.evaluate("() => [...document.querySelectorAll('#sal-unit-tbody tr td:first-child')].map(td => td.textContent.trim().split('時薪：')[0])")
+        OUT["checks"]["modal_move_order_reflected"] = modal_after == moved
         browser.close()
 
-    required = ['summary_unit_order', 'detail_unit_order', 'summary_total_last', 'actual_row_position', 'monthly_actual_totals', 'remaining_no_double_subtract', 'move_order_reflected']
+    required = ['summary_unit_order', 'detail_unit_order', 'summary_total_last', 'actual_row_position', 'monthly_actual_totals', 'remaining_no_double_subtract', 'modal_unit_order', 'modal_input_index_safe', 'move_order_reflected', 'modal_move_order_reflected']
     failed = [name for name in required if not OUT["checks"].get(name)]
     OUT["checks"]["console_errors_zero"] = not OUT["console_errors"]
     OUT["failed_required"] = failed

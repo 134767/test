@@ -11,8 +11,8 @@ import {
   saveScheduleType,
   deleteScheduleType,
   isScheduleTypeUsed
-} from './dataStore.js?v=1.6.0-batch-search-style-hotfix-10';
-import { formatNumber, showToast, formatTimeRange, getWeekdaysArray, arrayToWeekdays, renderPagination } from './utils.js?v=1.6.0-batch-search-style-hotfix-10';
+} from './dataStore.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
+import { formatNumber, showToast, formatTimeRange, getWeekdaysArray, arrayToWeekdays, renderPagination } from './utils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
 import {
   buildHourSettingDuplicateKey,
   filterHourSettingsByBudget,
@@ -20,7 +20,7 @@ import {
   getBatchSourceAcademicYears,
   getUniqueBudgetAcademicYears,
   planBatchHourCopy
-} from './hourBatchUtils.js?v=1.6.0-batch-search-style-hotfix-10';
+} from './hourBatchUtils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
 import {
   analyzeBudgetOptionsForYear,
   getValidBudgetsForYear,
@@ -28,9 +28,9 @@ import {
   findBudgetsByYearAndUnit,
   budgetOptionValue,
   findBudgetByOptionValue
-} from './hourBudgetScopeUtils.js?v=1.6.0-batch-search-style-hotfix-10';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-batch-search-style-hotfix-10';
-import { filterHourSettingsAdvanced } from './hourFilterUtils.js?v=1.6.0-batch-search-style-hotfix-10';
+} from './hourBudgetScopeUtils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
+import { filterHourSettingsAdvanced } from './hourFilterUtils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
 
 export {
   buildHourSettingDuplicateKey,
@@ -38,7 +38,7 @@ export {
   getValidBudgetUnitCodesForYear,
   isUnitInTargetBudgetScope,
   planBatchHourCopy
-} from './hourBatchUtils.js?v=1.6.0-batch-search-style-hotfix-10';
+} from './hourBatchUtils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
 
 export {
   getValidBudgetsForYear,
@@ -46,7 +46,7 @@ export {
   resolveBudgetForNameAndYear,
   getDistinctValidBudgetNames,
   filterCalendarRowsByBudgetScope
-} from './hourBudgetScopeUtils.js?v=1.6.0-batch-search-style-hotfix-10';
+} from './hourBudgetScopeUtils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
 
 let containerEl = null;
 let currentEditingId = null;

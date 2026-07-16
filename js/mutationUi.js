@@ -1,4 +1,4 @@
-import { beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-batch-search-style-hotfix-10';
+import { beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
 
 const active = new WeakSet();
 

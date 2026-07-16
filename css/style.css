@@ -220,6 +220,7 @@ button {
 .table-wrapper {
   overflow-x: auto;
   max-width: 100%;
+  min-width: 0;
 }
 
 .data-table {
@@ -305,6 +306,62 @@ button {
 
 .forecast-modal-wide {
   max-width: min(1000px, 96vw);
+}
+
+.forecast-modal-wide .modal-footer,
+#interval-modal .modal-footer {
+  flex-wrap: wrap;
+}
+
+.ptb-subpage-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.ptb-subpage-btn {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel-soft);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.ptb-subpage-btn.active {
+  color: #fff;
+  border-color: var(--primary);
+  background: var(--primary);
+}
+
+.forecast-evaluation-summary,
+.interval-operation-result {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel-soft);
+}
+
+.interval-choice-heading,
+.interval-preview-heading,
+.forecast-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.btn-compact {
+  min-height: 28px;
+  padding: 3px 8px;
+  font-size: 13px;
+}
+
+.error-text {
+  color: var(--danger);
 }
 
 .modal-header {
@@ -1236,6 +1293,15 @@ footer {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 6px;
+  min-width: 0;
+}
+
+/* 讓寬表格留在自身的捲動容器內，避免窄螢幕撐寬整頁。 */
+#page-differenceForecast,
+#page-differenceForecast .forecast-grid,
+#page-differenceForecast .table-wrapper {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .comparison-card h3 {

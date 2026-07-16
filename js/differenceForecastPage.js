@@ -10,11 +10,10 @@ import {
   getSalaryEntriesByDateRange,
   getForecastEvaluations,
   saveForecastEvaluation,
-  deleteForecastEvaluation,
-  generateForecastEvaluationId
-} from './dataStore.js?v=1.6.0-batch-search-style-hotfix-10';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-batch-search-style-hotfix-10';
-import { formatNumber, showToast, escapeHtml } from './utils.js?v=1.6.0-batch-search-style-hotfix-10';
+  deleteForecastEvaluation
+} from './dataStore.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
+import { formatNumber, showToast, escapeHtml } from './utils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
 import {
   validateRocAcademicYear,
   getDistinctBudgetNames,
@@ -22,7 +21,8 @@ import {
   normalizeBudgetUnitCodes,
   sumBudgetAmounts,
   buildBudgetScope
-} from './budgetGroupUtils.js?v=1.6.0-batch-search-style-hotfix-10';
+} from './budgetGroupUtils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
+import { normalizeForecastEvaluationRecord, validateForecastEvaluationDraft } from './forecastEvaluationUtils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
 
 // ===== 模組狀態 =====
 let containerEl = null;
@@ -1062,6 +1062,10 @@ export function renderDifferenceForecastPage() {
 
 // ===== 未來評估 Modal 相關邏輯 =====
 let modalIntervals = [];
+let editingForecastEvaluationId = '';
+let selectedForecastIntervalIndexes = new Set();
+let selectedLoadEvaluationId = '';
+let forecastModalPage = 'load';
 
 function getEvaluations() {
   try {
@@ -1074,12 +1078,12 @@ function getEvaluations() {
 function populateLoadSelect(selectedId = '') {
   const sel = containerEl.querySelector('#fe-load-select');
   if (!sel) return;
-  sel.innerHTML = '<option value="">新增評估</option>';
-  const evals = getEvaluations();
+  sel.innerHTML = '<option value="">請選擇評估</option>';
+  const evals = sortForecastEvaluations(getEvaluations());
   evals.forEach(ev => {
     const opt = document.createElement('option');
     opt.value = ev.id;
-    opt.textContent = ev.name || ev.id;
+    opt.textContent = forecastEvaluationLabel(ev);
     if (ev.id === selectedId) opt.selected = true;
     sel.appendChild(opt);
   });
@@ -1092,28 +1096,6 @@ function setModalFieldValues(evalData) {
   if (nameEl) nameEl.value = evalData.name || '';
   if (budEl) budEl.value = evalData.budget || 0;
   // 已移除 baseHourlyWage（重複功能，由區間預估時薪取代）
-}
-
-function clearModalForNew() {
-  const nameEl = containerEl.querySelector('#fe-name');
-  const budEl = containerEl.querySelector('#fe-budget');
-  const loadSel = containerEl.querySelector('#fe-load-select');
-
-  if (nameEl) nameEl.value = '';
-  if (loadSel) loadSel.value = '';
-
-  activeForecastEvaluationId = '';
-  currentEvaluation = null;
-
-  // 預設值從 currentResult
-  const cr = currentResult || createZeroResult();
-  if (budEl) budEl.value = cr.totalBudget || 0;
-
-  // 初始一筆區間（區間預估時薪預設使用目前平均時薪）
-  modalIntervals = [];
-  addDefaultFirstInterval();
-  renderModalIntervals();
-  updateForecastDeleteButtonState();
 }
 
 function addDefaultFirstInterval() {
@@ -1163,17 +1145,20 @@ function renderModalIntervals() {
   if (!tbody) return;
   tbody.innerHTML = '';
 
+  selectedForecastIntervalIndexes = new Set(
+    [...selectedForecastIntervalIndexes].filter(index => index >= 0 && index < modalIntervals.length)
+  );
+
   modalIntervals.forEach((iv, idx) => {
     const tr = document.createElement('tr');
     tr.innerHTML = `
+      <td><input type="checkbox" class="fe-interval-select" data-index="${idx}" aria-label="選取第 ${idx + 1} 筆帶入區間" ${selectedForecastIntervalIndexes.has(idx) ? 'checked' : ''}></td>
       <td><input type="month" value="${iv.startYm || ''}" data-idx="${idx}" data-field="startYm"></td>
       <td><input type="month" value="${iv.endYm || ''}" data-idx="${idx}" data-field="endYm"></td>
       <td class="numeric"><input type="number" step="0.01" min="0" value="${iv.hourlyWage || 0}" data-idx="${idx}" data-field="hourlyWage"></td>
       <td><input type="text" value="${escapeHtml(iv.note || '')}" data-idx="${idx}" data-field="note"></td>
-      <td class="action-cell"><button type="button" data-idx="${idx}" class="btn-danger">刪除</button></td>
     `;
-    // bind inputs
-    const inputs = tr.querySelectorAll('input');
+    const inputs = tr.querySelectorAll('input[data-field]');
     inputs.forEach(inp => {
       inp.addEventListener('input', (e) => {
         const i = parseInt(inp.dataset.idx, 10);
@@ -1187,15 +1172,14 @@ function renderModalIntervals() {
         }
       });
     });
-    const delBtn = tr.querySelector('button');
-    if (delBtn) {
-      delBtn.addEventListener('click', () => {
-        modalIntervals.splice(idx, 1);
-        renderModalIntervals();
-      });
-    }
+    tr.querySelector('.fe-interval-select')?.addEventListener('change', event => {
+      if (event.target.checked) selectedForecastIntervalIndexes.add(idx);
+      else selectedForecastIntervalIndexes.delete(idx);
+      updateForecastIntervalSelectionUi();
+    });
     tbody.appendChild(tr);
   });
+  updateForecastIntervalSelectionUi();
 }
 
 function addIntervalRow() {
@@ -1221,63 +1205,8 @@ function addIntervalRow() {
   renderModalIntervals();
 }
 
-function getModalFormData() {
-  const name = (containerEl.querySelector('#fe-name')?.value || '').trim();
-  const budget = Number(containerEl.querySelector('#fe-budget')?.value) || 0;
-  // 已刪除重複的預估時薪，全部由區間預估時薪決定
-  return { name, budget, intervals: modalIntervals };
-}
-
 function openForecastEvalModal() {
-  const modal = containerEl.querySelector('#forecast-eval-modal');
-  if (!modal) return;
-
-  modalIntervals = [];
-  populateLoadSelect('');
-
-  // 預設新增
-  clearModalForNew();
-
-  modal.style.display = 'flex';
-
-  // bind dynamic
-  const loadSel = containerEl.querySelector('#fe-load-select');
-  if (loadSel) {
-    loadSel.onchange = () => {
-      const id = loadSel.value;
-      if (!id) {
-        clearModalForNew();
-        return;
-      }
-      const evals = getEvaluations();
-      const found = evals.find(ev => ev.id === id);
-      if (found) {
-        modalIntervals = JSON.parse(JSON.stringify(found.intervals || []));
-        currentEvaluation = found;
-        activeForecastEvaluationId = found.id;
-        setModalFieldValues(found);
-        renderModalIntervals();
-        updateForecastDeleteButtonState();
-      }
-    };
-  }
-
-  const addBtn = containerEl.querySelector('#btn-add-interval');
-  if (addBtn) addBtn.onclick = () => addIntervalRow();
-
-  const delBtn = containerEl.querySelector('#forecast-delete-evaluation-btn');
-  if (delBtn) delBtn.onclick = handleDeleteForecastEvaluation;
-
-  const saveBtn = containerEl.querySelector('#fe-modal-save');
-  if (saveBtn) saveBtn.onclick = handleSaveEvaluation;
-
-  const cancelBtn = containerEl.querySelector('#fe-modal-cancel');
-  if (cancelBtn) cancelBtn.onclick = () => closeForecastEvalModal();
-
-  // click outside
-  modal.onclick = (e) => { if (e.target === modal) closeForecastEvalModal(); };
-
-  updateForecastDeleteButtonState();
+  openForecastEvalModalV2();
 }
 
 function closeForecastEvalModal() {
@@ -1285,136 +1214,236 @@ function closeForecastEvalModal() {
   if (modal) modal.style.display = 'none';
 }
 
-async function handleSaveEvaluation() {
-  const data = getModalFormData();
-  const loadSel = containerEl.querySelector('#fe-load-select');
-  const selectedId = loadSel ? loadSel.value : '';
+function sortForecastEvaluations(records) {
+  return [...records].sort((a, b) => {
+    const aTime = String(a.updatedAt || a.createdAt || '');
+    const bTime = String(b.updatedAt || b.createdAt || '');
+    return bTime.localeCompare(aTime) || String(a.name || '').localeCompare(String(b.name || ''), 'zh-Hant');
+  });
+}
 
-  if (!data.name) {
-    showToast('評估名稱不可空白', 'error');
-    return;
-  }
-  if (data.budget < 0) {
-    showToast('預算不可小於 0', 'error');
-    return;
-  }
-  if (!data.intervals || data.intervals.length === 0) {
-    showToast('至少需要 1 筆帶入區間', 'error');
-    return;
-  }
-  for (const iv of data.intervals) {
-    if (!iv.startYm || !iv.endYm) {
-      showToast('區間必須有起始與結束年月', 'error');
-      return;
-    }
-    if (iv.endYm < iv.startYm) {
-      showToast('結束年月不可早於起始年月', 'error');
-      return;
-    }
-    if (iv.hourlyWage < 0) {
-      showToast('區間時薪不可小於 0', 'error');
-      return;
-    }
-    // monthlyHours 已不再提供輸入功能，保留相容性檢查
-    if (iv.monthlyHours !== undefined && iv.monthlyHours < 0) {
-      showToast('區間時數不可小於 0', 'error');
-      return;
-    }
-  }
+function forecastEvaluationLabel(record) {
+  const name = String(record?.name || '').trim();
+  if (name) return name;
+  const id = String(record?.id || '');
+  return `未命名評估（${id.slice(-8) || '無 ID'}）`;
+}
 
-  let toSave = {
-    name: data.name,
-    budget: data.budget,
-    // baseHourlyWage 已移除（與區間預估時薪重複），直接由 intervals 內的 hourlyWage 決定
-    intervals: data.intervals
+function setForecastModalPage(page) {
+  forecastModalPage = page === 'create' ? 'create' : 'load';
+  ['load', 'create'].forEach(name => {
+    const active = name === forecastModalPage;
+    const tab = containerEl.querySelector(`#fe-tab-${name}`);
+    const panel = containerEl.querySelector(`#fe-${name}-panel`);
+    if (tab) {
+      tab.classList.toggle('active', active);
+      tab.setAttribute('aria-selected', active ? 'true' : 'false');
+    }
+    if (panel) panel.hidden = !active;
+  });
+  const start = containerEl.querySelector('#fe-start-evaluation');
+  const save = containerEl.querySelector('#fe-save-evaluation');
+  if (start) start.hidden = forecastModalPage !== 'load';
+  if (save) save.hidden = forecastModalPage !== 'create';
+  if (forecastModalPage === 'load') renderForecastLoadPanel();
+  else renderForecastHistory();
+}
+
+function renderForecastLoadPanel() {
+  const summary = containerEl.querySelector('#fe-load-summary');
+  const startButton = containerEl.querySelector('#fe-start-evaluation');
+  const found = getEvaluations().find(record => record.id === selectedLoadEvaluationId);
+  if (!summary) return;
+  if (!found) {
+    summary.innerHTML = '<div class="forecast-evaluation-summary">請先選擇評估</div>';
+    if (startButton) startButton.disabled = true;
+    return;
+  }
+  const rows = found.intervals.map(interval => `<tr><td>${escapeHtml(interval.startYm)}</td><td>${escapeHtml(interval.endYm)}</td><td class="numeric">${formatNumber(interval.hourlyWage)}</td><td>${escapeHtml(interval.note)}</td></tr>`).join('');
+  const message = found._intervalParseError
+    ? '此評估的區間資料格式異常，請到「新增評估」頁編輯修正'
+    : (!found.intervals.length ? '此評估沒有可用的帶入區間' : '');
+  summary.innerHTML = `
+    <div class="forecast-evaluation-summary">
+      <div><strong>評估名稱：</strong>${escapeHtml(forecastEvaluationLabel(found))}</div>
+      <div><strong>評估預算：</strong>${formatNumber(found.budget)}</div>
+      <div><strong>區間數量：</strong>${found.intervals.length}</div>
+      ${message ? `<div class="${found._intervalParseError ? 'error-text' : ''}">${escapeHtml(message)}</div>` : ''}
+    </div>
+    ${rows ? `<div class="table-wrapper"><table class="data-table"><thead><tr><th>起始年月</th><th>結束年月</th><th class="numeric">區間預估時薪</th><th>備註</th></tr></thead><tbody>${rows}</tbody></table></div>` : ''}
+  `;
+  if (startButton) startButton.disabled = !!found._intervalParseError || !found.intervals.length;
+}
+
+function resetForecastCreateForm() {
+  editingForecastEvaluationId = '';
+  selectedForecastIntervalIndexes.clear();
+  const name = containerEl.querySelector('#fe-name');
+  const budget = containerEl.querySelector('#fe-budget');
+  if (name) name.value = '';
+  if (budget) budget.value = Number(currentResult?.totalBudget) || 0;
+  modalIntervals = [];
+  addDefaultFirstInterval();
+  renderModalIntervals();
+  const save = containerEl.querySelector('#fe-save-evaluation');
+  if (save) save.textContent = '儲存';
+  const error = containerEl.querySelector('#fe-create-error');
+  if (error) error.textContent = '';
+}
+
+function openForecastEvalModalV2() {
+  const modal = containerEl.querySelector('#forecast-eval-modal');
+  if (!modal) return;
+  selectedLoadEvaluationId = '';
+  populateLoadSelect('');
+  resetForecastCreateForm();
+  renderForecastHistory();
+  setForecastModalPage('load');
+  modal.style.display = 'flex';
+}
+
+function updateForecastIntervalSelectionUi() {
+  const total = modalIntervals.length;
+  const selected = selectedForecastIntervalIndexes.size;
+  const all = containerEl?.querySelector('#fe-interval-select-all');
+  const remove = containerEl?.querySelector('#fe-delete-selected-intervals');
+  if (all) {
+    all.checked = total > 0 && selected === total;
+    all.indeterminate = selected > 0 && selected < total;
+  }
+  if (remove) remove.disabled = selected === 0;
+}
+
+function deleteSelectedForecastIntervals() {
+  if (!selectedForecastIntervalIndexes.size) {
+    showToast('請先勾選要刪除的區間', 'error');
+    return;
+  }
+  [...selectedForecastIntervalIndexes].sort((a, b) => b - a).forEach(index => modalIntervals.splice(index, 1));
+  selectedForecastIntervalIndexes.clear();
+  renderModalIntervals();
+}
+
+function loadForecastEvaluationForEdit(id) {
+  const found = getEvaluations().find(record => record.id === id);
+  if (!found) return;
+  editingForecastEvaluationId = found.id;
+  selectedForecastIntervalIndexes.clear();
+  modalIntervals = found.intervals.map(interval => ({ ...interval }));
+  setModalFieldValues(found);
+  renderModalIntervals();
+  const save = containerEl.querySelector('#fe-save-evaluation');
+  if (save) save.textContent = '更新';
+  const error = containerEl.querySelector('#fe-create-error');
+  if (error) error.textContent = found._intervalParseError ? '區間資料格式異常，請新增有效區間後再更新。' : '';
+  setForecastModalPage('create');
+  containerEl.querySelector('#fe-create-form')?.scrollIntoView({ block: 'start' });
+}
+
+function renderForecastHistory() {
+  const tbody = containerEl?.querySelector('#fe-history-tbody');
+  if (!tbody) return;
+  const records = sortForecastEvaluations(getEvaluations());
+  tbody.innerHTML = records.length ? records.map(record => `
+    <tr data-id="${escapeHtml(record.id)}">
+      <td>${escapeHtml(forecastEvaluationLabel(record))}</td>
+      <td class="numeric">${formatNumber(record.budget)}</td>
+      <td class="numeric">${record.intervals.length}</td>
+      <td class="action-cell"><button type="button" class="btn-secondary btn-compact fe-history-edit">編輯</button> <button type="button" class="btn-danger btn-compact fe-history-delete">刪除</button></td>
+    </tr>`).join('') : '<tr><td colspan="4" style="text-align:center;color:#666;">尚無歷史評估</td></tr>';
+}
+
+async function saveForecastEvaluationDraft() {
+  const draft = {
+    ...(editingForecastEvaluationId ? { id: editingForecastEvaluationId } : {}),
+    name: containerEl.querySelector('#fe-name')?.value || '',
+    budget: containerEl.querySelector('#fe-budget')?.value,
+    intervals: modalIntervals
   };
-
-  if (selectedId) {
-    toSave.id = selectedId;
+  const validation = validateForecastEvaluationDraft(draft, getEvaluations());
+  if (!validation.ok) {
+    showToast(validation.error, 'error');
+    return;
   }
-
   let saved;
-  try { saved=await runWithMutationUiLock([containerEl.querySelector('#fe-modal-save'),containerEl.querySelector('#fe-modal-cancel')],()=>saveForecastEvaluation(toSave)); } catch { return; }
-  currentEvaluation = saved;
-  activeForecastEvaluationId = saved ? saved.id : '';
+  try {
+    saved = await runWithMutationUiLock(
+      [containerEl.querySelector('#fe-save-evaluation'), containerEl.querySelector('#fe-modal-exit')],
+      () => saveForecastEvaluation(draft)
+    );
+  } catch { return; }
+  editingForecastEvaluationId = '';
+  selectedLoadEvaluationId = saved.id;
+  populateLoadSelect(saved.id);
+  resetForecastCreateForm();
+  renderForecastHistory();
+  setForecastModalPage('load');
+  showToast(`評估「${forecastEvaluationLabel(saved)}」已儲存`, 'success');
+}
 
-  closeForecastEvalModal();
-
-  // 更新顯示與計算
+function startSelectedForecastEvaluation() {
+  const found = getEvaluations().find(record => record.id === selectedLoadEvaluationId);
+  if (!found || found._intervalParseError || !found.intervals.length) return;
+  if (!selectedBudgetName) {
+    showToast('請先選擇預算群組', 'error');
+    return;
+  }
+  currentEvaluation = normalizeForecastEvaluationRecord(found);
+  activeForecastEvaluationId = currentEvaluation.id;
   futureResult = calculateFuturePanelResult(currentResult);
   renderFuturePanel();
   renderComparisonTable();
-
-  showToast(`評估「${saved.name}」已儲存`, 'success');
+  closeForecastEvalModal();
 }
 
-function updateForecastDeleteButtonState() {
-  const btn = containerEl ? containerEl.querySelector('#forecast-delete-evaluation-btn') : null;
-  if (!btn) return;
-  btn.disabled = !activeForecastEvaluationId;
-}
-
-async function handleDeleteForecastEvaluation() {
-  if (!activeForecastEvaluationId) {
-    showToast('請先載入要刪除的評估紀錄', 'error');
-    return;
-  }
-
-  const evals = getEvaluations();
-  const found = evals.find(ev => ev.id === activeForecastEvaluationId);
-  if (!found) {
-    showToast('找不到目前載入的評估紀錄', 'error');
-    activeForecastEvaluationId = '';
-    currentEvaluation = null;
-    updateForecastDeleteButtonState();
-    return;
-  }
-
-  if (!confirm(`確定刪除評估紀錄「${found.name || found.id}」？此動作無法復原。`)) {
-    return;
-  }
-
+async function deleteForecastEvaluationFromHistory(id, button) {
+  const found = getEvaluations().find(record => record.id === id);
+  if (!found || !confirm(`確定刪除評估紀錄「${forecastEvaluationLabel(found)}」？此動作無法復原。`)) return;
   try {
-    await runWithMutationUiLock(containerEl.querySelector('#forecast-delete-evaluation-btn'),()=>deleteForecastEvaluation(activeForecastEvaluationId));
-    showToast('評估紀錄已刪除');
-
-    // 清空表單與狀態
-    currentEvaluation = null;
+    await runWithMutationUiLock(button, () => deleteForecastEvaluation(id));
+  } catch { return; }
+  if (editingForecastEvaluationId === id) resetForecastCreateForm();
+  if (activeForecastEvaluationId === id) {
     activeForecastEvaluationId = '';
-    modalIntervals = [];
-
-    // 刷新 load select
-    populateLoadSelect('');
-
-    // 清空 modal 內容（不關閉 modal）
-    const nameEl = containerEl.querySelector('#fe-name');
-    const budEl = containerEl.querySelector('#fe-budget');
-    const loadSel = containerEl.querySelector('#fe-load-select');
-    if (nameEl) nameEl.value = '';
-    if (budEl) budEl.value = '';
-    if (loadSel) loadSel.value = '';
-    // 已移除 fe-base-hourly
-
-    const tbody = containerEl.querySelector('#fe-interval-tbody');
-    if (tbody) tbody.innerHTML = '';
-
-    updateForecastDeleteButtonState();
-
-    // 刷新外部頁面顯示
+    currentEvaluation = null;
     futureResult = calculateFuturePanelResult(currentResult);
     renderFuturePanel();
     renderComparisonTable();
-  } catch (e) {
-    console.error(e);
-    showToast('刪除失敗', 'error');
   }
+  if (selectedLoadEvaluationId === id) selectedLoadEvaluationId = '';
+  populateLoadSelect(selectedLoadEvaluationId);
+  renderForecastLoadPanel();
+  renderForecastHistory();
+  showToast('評估紀錄已刪除', 'success');
 }
 
-function resetForecastEvaluationFormAfterDelete() {
-  // 保留此函式以相容，實際清空已在 handleDelete 內處理
-  activeForecastEvaluationId = '';
-  currentEvaluation = null;
-  updateForecastDeleteButtonState();
+function bindForecastEvaluationModalEvents() {
+  containerEl.querySelector('#fe-tab-load')?.addEventListener('click', () => setForecastModalPage('load'));
+  containerEl.querySelector('#fe-tab-create')?.addEventListener('click', () => {
+    if (forecastModalPage !== 'create') resetForecastCreateForm();
+    setForecastModalPage('create');
+  });
+  containerEl.querySelector('#fe-load-select')?.addEventListener('change', event => {
+    selectedLoadEvaluationId = event.target.value;
+    renderForecastLoadPanel();
+  });
+  containerEl.querySelector('#fe-add-interval')?.addEventListener('click', addIntervalRow);
+  containerEl.querySelector('#fe-delete-selected-intervals')?.addEventListener('click', deleteSelectedForecastIntervals);
+  containerEl.querySelector('#fe-interval-select-all')?.addEventListener('change', event => {
+    selectedForecastIntervalIndexes = event.target.checked
+      ? new Set(modalIntervals.map((_, index) => index))
+      : new Set();
+    renderModalIntervals();
+  });
+  containerEl.querySelector('#fe-save-evaluation')?.addEventListener('click', saveForecastEvaluationDraft);
+  containerEl.querySelector('#fe-start-evaluation')?.addEventListener('click', startSelectedForecastEvaluation);
+  containerEl.querySelector('#fe-modal-exit')?.addEventListener('click', closeForecastEvalModal);
+  containerEl.querySelector('#fe-history-tbody')?.addEventListener('click', event => {
+    const row = event.target.closest('tr[data-id]');
+    if (!row) return;
+    if (event.target.closest('.fe-history-edit')) loadForecastEvaluationForEdit(row.dataset.id);
+    if (event.target.closest('.fe-history-delete')) deleteForecastEvaluationFromHistory(row.dataset.id, event.target.closest('button'));
+  });
 }
 
 // ===== INIT =====
@@ -1532,7 +1561,7 @@ export function initDifferenceForecastPage(container) {
       <div class="forecast-card future-card">
         <div class="forecast-card-header">
           <h3 style="margin:0;">未來預算與核銷</h3>
-          <button id="btn-open-forecast-modal" class="btn-primary" style="padding:4px 10px; font-size:14px;">新增評估</button>
+          <button id="btn-open-forecast-modal" class="btn-primary" style="padding:4px 10px; font-size:14px;">評估設定</button>
         </div>
         <div id="future-current-eval" class="forecast-current-eval">目前評估：尚未建立評估</div>
         <div id="future-summary"></div>
@@ -1546,47 +1575,67 @@ export function initDifferenceForecastPage(container) {
           <h3>未來預算與核銷評估</h3>
         </div>
         <div class="modal-body" style="font-size:15px;">
-          <div class="form-row">
+          <div class="ptb-subpage-tabs" role="tablist" aria-label="未來評估功能">
+            <button type="button" id="fe-tab-load" class="ptb-subpage-btn active" data-fe-page="load" aria-selected="true">載入評估</button>
+            <button type="button" id="fe-tab-create" class="ptb-subpage-btn" data-fe-page="create" aria-selected="false">新增評估</button>
+          </div>
+
+          <section id="fe-load-panel">
             <div class="form-group">
               <label>載入評估</label>
               <select id="fe-load-select">
-                <option value="">新增評估</option>
+                <option value="">請選擇評估</option>
               </select>
             </div>
-            <div class="form-group">
+            <div id="fe-load-summary"><div class="forecast-evaluation-summary">請先選擇評估</div></div>
+          </section>
+
+          <section id="fe-create-panel" hidden>
+            <div id="fe-create-form" class="form-row">
+              <div class="form-group">
               <label>新評估名稱 <span class="required">*</span></label>
               <input type="text" id="fe-name" placeholder="例如：115學年度調薪預估">
-            </div>
-            <div class="form-group">
-              <label>預算 <span class="required">*</span></label>
+              </div>
+              <div class="form-group">
+              <label>評估預算 <span class="required">*</span></label>
               <input type="number" id="fe-budget" step="1" min="0">
+              </div>
             </div>
-          </div>
-
-          <div style="margin:10px 0 6px; font-weight:600;">帶入區間</div>
-          <div style="margin-bottom:6px;">
-            <button id="btn-add-interval" class="btn-secondary" style="padding:4px 10px;font-size:14px;">新增帶入區間</button>
-            <button id="forecast-delete-evaluation-btn" class="btn-danger" type="button" style="padding:4px 10px;font-size:14px;" disabled>刪除紀錄</button>
-          </div>
-          <div class="table-wrapper">
-            <table class="data-table forecast-interval-table" id="fe-interval-table">
-              <thead>
-                <tr>
+            <div id="fe-create-error" class="error-text" aria-live="polite"></div>
+            <div class="interval-choice-heading">
+              <strong>帶入區間</strong>
+              <div class="forecast-form-actions">
+                <button id="fe-add-interval" type="button" class="btn-secondary btn-compact">新增區間</button>
+                <button id="fe-delete-selected-intervals" type="button" class="btn-danger btn-compact" disabled>刪除區間</button>
+              </div>
+            </div>
+            <div class="table-wrapper">
+              <table class="data-table forecast-interval-table" id="fe-interval-table">
+                <thead><tr>
+                  <th><input type="checkbox" id="fe-interval-select-all" aria-label="全選帶入區間"></th>
                   <th>起始年月</th>
                   <th>結束年月</th>
                   <th class="numeric">區間預估時薪</th>
                   <th>備註</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="fe-interval-tbody"></tbody>
-            </table>
-          </div>
-          <div style="font-size:13px;color:#666;margin-top:4px;">後面的區間會覆蓋前面重疊月份的時薪（預估支出仍依行事曆時數與區間預估時薪計算，畫面不再顯示預估時數欄）。</div>
+                </tr></thead>
+                <tbody id="fe-interval-tbody"></tbody>
+              </table>
+            </div>
+            <div style="font-size:13px;color:#666;margin-top:4px;">後面的區間會覆蓋前面重疊月份的時薪。</div>
+
+            <h4>歷史區間</h4>
+            <div class="table-wrapper">
+              <table class="data-table" id="fe-history-table">
+                <thead><tr><th>評估名稱</th><th class="numeric">評估預算</th><th class="numeric">區間數量</th><th>操作</th></tr></thead>
+                <tbody id="fe-history-tbody"></tbody>
+              </table>
+            </div>
+          </section>
         </div>
         <div class="modal-footer">
-          <button id="fe-modal-save" class="btn-primary">儲存</button>
-          <button id="fe-modal-cancel" class="btn-secondary">取消</button>
+          <button id="fe-start-evaluation" class="btn-primary" disabled>開始評估</button>
+          <button id="fe-save-evaluation" class="btn-primary" hidden>儲存</button>
+          <button id="fe-modal-exit" class="btn-secondary">退出</button>
         </div>
       </div>
     </div>
@@ -1603,6 +1652,7 @@ export function initDifferenceForecastPage(container) {
 
   // 事件
   bindEvents();
+  bindForecastEvaluationModalEvents();
 
   // 額外：全部重整按鈕
   const refreshBtn = containerEl.querySelector('#btn-refresh-forecast');

@@ -27,6 +27,14 @@ test('calendar row wage comes from interval input and keeps source id',()=>{
   assert.notEqual(row.hourlyWage,legacyMatch.hourlyWage);
 });
 
+test('calendar row unit name is a creation-time snapshot with hour-setting fallback',()=>{
+  const masterRow=buildCalendarRowFromHourSetting({date:'2025-08-01',academicYear:'114',weekday:'五',match,hourlyWage:190,unitNameSnapshot:'Current Master Name'});
+  assert.equal(masterRow.unitName,'Current Master Name');
+  const fallbackRow=buildCalendarRowFromHourSetting({date:'2025-08-01',academicYear:'114',weekday:'五',match,hourlyWage:190,unitNameSnapshot:'  '});
+  assert.equal(fallbackRow.unitName,match.unitName.trim());
+  assert.equal(masterRow.sourceHourSettingId,match.id);
+});
+
 test('fixed government wage warning is distinct from academic year range hint',()=>{
   assert.equal(CALENDAR_WAGE_YEAR_WARNING,'跨年度要考慮政府薪資調漲問題，建議固定新增區間為 1/1～12/31。');
   const hint=getAcademicYearRangeHint('114');
