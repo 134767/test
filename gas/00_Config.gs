@@ -1,5 +1,5 @@
 var PTB_VERSION = '1.6.0';
-var PTB_ASSET_VERSION = '1.6.0-budget-option-dedup-hotfix-8';
+var PTB_ASSET_VERSION = '1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
 var PTB_PROPERTY_KEYS = Object.freeze({ spreadsheetId:'PTB_SPREADSHEET_ID', githubBaseUrl:'PTB_GITHUB_PAGES_BASE_URL', appVersion:'PTB_APP_VERSION', assetVersion:'PTB_STATIC_ASSET_VERSION', writeMode:'PTB_WRITE_MODE', testMode:'PTB_TEST_MODE', schemaMigrationApproval:'PTB_SCHEMA_MIGRATION_APPROVAL' });
 var PTB_TABLES = Object.freeze({
   budgets:{sheet:'01_budgets',headers:['id','academicYear','budgetAmount','note','createdAt','updatedAt','budgetName','unitCodes']},

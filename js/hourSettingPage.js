@@ -11,8 +11,8 @@ import {
   saveScheduleType,
   deleteScheduleType,
   isScheduleTypeUsed
-} from './dataStore.js?v=1.6.0-budget-option-dedup-hotfix-8';
-import { formatNumber, showToast, formatTimeRange, getWeekdaysArray, arrayToWeekdays, renderPagination } from './utils.js?v=1.6.0-budget-option-dedup-hotfix-8';
+} from './dataStore.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
+import { formatNumber, showToast, formatTimeRange, getWeekdaysArray, arrayToWeekdays, renderPagination } from './utils.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
 import {
   buildHourSettingDuplicateKey,
   filterHourSettingsByBudget,
@@ -20,7 +20,7 @@ import {
   getBatchSourceAcademicYears,
   getUniqueBudgetAcademicYears,
   planBatchHourCopy
-} from './hourBatchUtils.js?v=1.6.0-budget-option-dedup-hotfix-8';
+} from './hourBatchUtils.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
 import {
   analyzeBudgetOptionsForYear,
   getValidBudgetsForYear,
@@ -28,8 +28,9 @@ import {
   findBudgetsByYearAndUnit,
   budgetOptionValue,
   findBudgetByOptionValue
-} from './hourBudgetScopeUtils.js?v=1.6.0-budget-option-dedup-hotfix-8';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-budget-option-dedup-hotfix-8';
+} from './hourBudgetScopeUtils.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
+import { filterHourSettingsAdvanced } from './hourFilterUtils.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
 
 export {
   buildHourSettingDuplicateKey,
@@ -37,7 +38,7 @@ export {
   getValidBudgetUnitCodesForYear,
   isUnitInTargetBudgetScope,
   planBatchHourCopy
-} from './hourBatchUtils.js?v=1.6.0-budget-option-dedup-hotfix-8';
+} from './hourBatchUtils.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
 
 export {
   getValidBudgetsForYear,
@@ -45,11 +46,13 @@ export {
   resolveBudgetForNameAndYear,
   getDistinctValidBudgetNames,
   filterCalendarRowsByBudgetScope
-} from './hourBudgetScopeUtils.js?v=1.6.0-budget-option-dedup-hotfix-8';
+} from './hourBudgetScopeUtils.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
 
 let containerEl = null;
 let currentEditingId = null;
-let currentSearch = '';
+const emptyHourFilters = () => ({ academicYear: '', budgetName: '', scheduleType: '', unitCode: '', keyword: '' });
+let draftHourFilters = emptyHourFilters();
+let appliedHourFilters = emptyHourFilters();
 /** @type {string[]} ids currently previewed in batch modal */
 let batchModalSelectedIds = [];
 let batchModalMode = 'scope';
@@ -66,15 +69,26 @@ const STYPE_PAGE_SIZE = 20;
 
 export function initHourSettingPage(container) {
   containerEl = container;
+  draftHourFilters = emptyHourFilters();
+  appliedHourFilters = emptyHourFilters();
   container.innerHTML = `
     <div class="page-header">
       <h2>時數設定</h2>
       <div class="toolbar">
-        <input type="text" id="hour-search" placeholder="搜尋 學年度 / 預算單位 / 作息類型 / 單位 / 週期 / 備註" class="search-input">
         <button id="btn-add-schedule-type" class="btn-primary">新增作息</button>
         <button id="btn-add-hour" class="btn-primary">新增時數</button>
         <button id="btn-batch-add-hour" class="btn-primary">批次新增</button>
         <button id="btn-delete-hour" class="btn-danger">刪除</button>
+      </div>
+    </div>
+    <div class="query-panel hour-filter-panel">
+      <div class="query-row">
+        <div class="query-field"><label for="hour-filter-year">學年度</label><select id="hour-filter-year"></select></div>
+        <div class="query-field"><label for="hour-filter-budget">預算單位</label><select id="hour-filter-budget"></select></div>
+        <div class="query-field"><label for="hour-filter-schedule-type">作息類型</label><select id="hour-filter-schedule-type"></select></div>
+        <div class="query-field"><label for="hour-filter-unit">單位</label><select id="hour-filter-unit"></select></div>
+        <div class="query-field hour-filter-keyword-field"><label for="hour-filter-keyword">文字搜尋</label><input type="text" id="hour-filter-keyword" placeholder="搜尋週期／開館時間／備註或其他關鍵字"></div>
+        <div class="query-actions"><button id="hour-filter-query" class="btn-primary">查詢</button></div>
       </div>
     </div>
     <div class="table-wrapper">
@@ -248,21 +262,18 @@ export function initHourSettingPage(container) {
   `;
 
   bindHourEvents();
+  refreshHourFilterOptions();
   renderHourTable();
   updateBatchAddButtonState();
 }
 
 function bindHourEvents() {
-  const searchInput = containerEl.querySelector('#hour-search');
   const addBtn = containerEl.querySelector('#btn-add-hour');
   const batchBtn = containerEl.querySelector('#btn-batch-add-hour');
   const delBtn = containerEl.querySelector('#btn-delete-hour');
   const allCheck = containerEl.querySelector('#hour-all-check');
 
-  searchInput.addEventListener('input', () => {
-    currentSearch = searchInput.value.trim().toLowerCase();
-    renderHourTable();
-  });
+  bindHourFilterEvents();
 
   addBtn.addEventListener('click', () => showHourModal());
   if (batchBtn) batchBtn.addEventListener('click', () => showBatchAddHourModal());
@@ -347,6 +358,127 @@ function bindHourEvents() {
     rebuildBatchPlanSummary();
   });
   if (targetBudget) targetBudget.addEventListener('change', rebuildBatchPlanSummary);
+}
+
+function setHourFilterOptions(select, placeholder, items, selected) {
+  if (!select) return;
+  select.replaceChildren();
+  const first = document.createElement('option');
+  first.value = '';
+  first.textContent = placeholder;
+  select.appendChild(first);
+  items.forEach(item => {
+    const option = document.createElement('option');
+    option.value = item.value;
+    option.textContent = item.label;
+    select.appendChild(option);
+  });
+  if (selected && !items.some(item => item.value === selected)) {
+    const retained = document.createElement('option');
+    retained.value = selected;
+    retained.textContent = selected;
+    select.appendChild(retained);
+  }
+  select.value = selected || '';
+}
+
+function refreshHourFilterOptions() {
+  if (!containerEl) return;
+  const hours = getHourSettings();
+  const budgets = getBudgets();
+  const years = [...new Set(hours.map(row => String(row.academicYear || '').trim()).filter(Boolean))]
+    .sort((a, b) => Number(b) - Number(a) || b.localeCompare(a, 'zh-Hant'));
+  setHourFilterOptions(
+    containerEl.querySelector('#hour-filter-year'),
+    '全部學年度',
+    years.map(value => ({ value, label: value })),
+    draftHourFilters.academicYear
+  );
+
+  const yearRows = filterHourSettingsAdvanced({
+    hourSettings: hours,
+    budgets,
+    academicYear: draftHourFilters.academicYear
+  });
+  const budgetNames = [...new Set(yearRows.map(row => deriveHourBudgetUnit(budgets, row.academicYear, row.unitCode).label))]
+    .sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+  setHourFilterOptions(
+    containerEl.querySelector('#hour-filter-budget'),
+    '全部預算單位',
+    budgetNames.map(value => ({ value, label: value })),
+    draftHourFilters.budgetName
+  );
+
+  const budgetRows = filterHourSettingsAdvanced({
+    hourSettings: hours,
+    budgets,
+    academicYear: draftHourFilters.academicYear,
+    budgetName: draftHourFilters.budgetName
+  });
+  const scheduleTypes = [...new Set(budgetRows.map(row => String(row.scheduleType || '').trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+  setHourFilterOptions(
+    containerEl.querySelector('#hour-filter-schedule-type'),
+    '全部作息類型',
+    scheduleTypes.map(value => ({ value, label: value })),
+    draftHourFilters.scheduleType
+  );
+
+  const scheduleRows = filterHourSettingsAdvanced({
+    hourSettings: hours,
+    budgets,
+    academicYear: draftHourFilters.academicYear,
+    budgetName: draftHourFilters.budgetName,
+    scheduleType: draftHourFilters.scheduleType
+  });
+  const nameByCode = new Map(getUnits().map(unit => [String(unit.unitCode || '').trim(), unit.unitName || unit.unitCode]));
+  const unitCodes = [...new Set(scheduleRows.map(row => String(row.unitCode || '').trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+  setHourFilterOptions(
+    containerEl.querySelector('#hour-filter-unit'),
+    '全部單位',
+    unitCodes.map(value => ({ value, label: `${value} - ${nameByCode.get(value) || value}` })),
+    draftHourFilters.unitCode
+  );
+  const keyword = containerEl.querySelector('#hour-filter-keyword');
+  if (keyword && keyword.value !== draftHourFilters.keyword) keyword.value = draftHourFilters.keyword;
+}
+
+function applyDraftHourFilters() {
+  draftHourFilters.keyword = String(containerEl.querySelector('#hour-filter-keyword')?.value || '').trim();
+  appliedHourFilters = { ...draftHourFilters };
+  const allCheck = containerEl.querySelector('#hour-all-check');
+  if (allCheck) allCheck.checked = false;
+  containerEl.querySelectorAll('#hour-tbody .row-check').forEach(check => { check.checked = false; });
+  renderHourTable();
+}
+
+function bindHourFilterEvents() {
+  const year = containerEl.querySelector('#hour-filter-year');
+  const budget = containerEl.querySelector('#hour-filter-budget');
+  const schedule = containerEl.querySelector('#hour-filter-schedule-type');
+  const unit = containerEl.querySelector('#hour-filter-unit');
+  const keyword = containerEl.querySelector('#hour-filter-keyword');
+  year.addEventListener('change', () => {
+    draftHourFilters = { ...draftHourFilters, academicYear: year.value, budgetName: '', scheduleType: '', unitCode: '' };
+    refreshHourFilterOptions();
+  });
+  budget.addEventListener('change', () => {
+    draftHourFilters = { ...draftHourFilters, budgetName: budget.value, scheduleType: '', unitCode: '' };
+    refreshHourFilterOptions();
+  });
+  schedule.addEventListener('change', () => {
+    draftHourFilters = { ...draftHourFilters, scheduleType: schedule.value, unitCode: '' };
+    refreshHourFilterOptions();
+  });
+  unit.addEventListener('change', () => { draftHourFilters = { ...draftHourFilters, unitCode: unit.value }; });
+  keyword.addEventListener('input', () => { draftHourFilters = { ...draftHourFilters, keyword: keyword.value }; });
+  keyword.addEventListener('keydown', event => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    applyDraftHourFilters();
+  });
+  containerEl.querySelector('#hour-filter-query').addEventListener('click', applyDraftHourFilters);
 }
 
 function setHourBudgetHint(text) {
@@ -508,28 +640,14 @@ function renderScheduleTypeButtons() {
 
 export function renderHourTable() {
   if (!containerEl) return;
+  refreshHourFilterOptions();
   const tbody = containerEl.querySelector('#hour-tbody');
   const allCheck = containerEl.querySelector('#hour-all-check');
   if (!tbody) return;
 
   const budgets = getBudgets();
-  let data = getHourSettings().map(item => ({ item, derived: deriveHourBudgetUnit(budgets, item.academicYear, item.unitCode) }));
-
-  // 套用搜尋
-  if (currentSearch) {
-    const kw = currentSearch;
-    data = data.filter(({ item: h, derived }) => {
-      const unitStr = `${h.unitCode} ${h.unitName}`.toLowerCase();
-      return (
-        (h.academicYear || '').toLowerCase().includes(kw) ||
-        derived.label.toLowerCase().includes(kw) ||
-        (h.scheduleType || '').toLowerCase().includes(kw) ||
-        unitStr.includes(kw) ||
-        (h.weekdays || '').toLowerCase().includes(kw) ||
-        (h.note || '').toLowerCase().includes(kw)
-      );
-    });
-  }
+  const filtered = filterHourSettingsAdvanced({ hourSettings: getHourSettings(), budgets, ...appliedHourFilters });
+  const data = filtered.map(item => ({ item, derived: deriveHourBudgetUnit(budgets, item.academicYear, item.unitCode) }));
 
   // 排序：學年度 desc, 作息, 單位
   data.sort((a, b) => {
@@ -542,6 +660,12 @@ export function renderHourTable() {
   });
 
   tbody.innerHTML = '';
+
+  if (!data.length) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="10" style="text-align:center;color:#666;">查無符合條件的時數設定</td>';
+    tbody.appendChild(tr);
+  }
 
   data.forEach(({ item, derived }) => {
     const tr = document.createElement('tr');

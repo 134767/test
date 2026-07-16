@@ -795,8 +795,11 @@ footer {
 /* 真正 transpose 版：月份作為欄位，左側項目/指標，單位每4列 */
 /* 專為寬表格設計：左側兩欄 sticky 凍結 */
 .salary-month-transpose-table {
-  --month-detail-col1-width: 140px; /* 項目 */
-  --month-detail-col2-width: 128px; /* 指標 */
+  --month-detail-col1-width: 140px; /* 單位 */
+  --month-detail-col2-width: 128px; /* 項目 */
+  width: max-content;
+  min-width: 100%;
+  table-layout: auto;
 }
 
 .salary-month-transpose-table th,
@@ -817,11 +820,16 @@ footer {
 .salary-month-transpose-table th:nth-child(n+3) {
   text-align: right;
   font-variant-numeric: tabular-nums;
+  min-width: 92px;
+}
+
+.hour-filter-keyword-field {
+  flex: 2 1 260px;
 }
 
 .salary-month-transpose-table .note-cell {
   text-align: left;
-  min-width: 80px;
+  min-width: 110px;
 }
 
 /* ===== 左側兩欄 sticky 凍結（僅限此表格） ===== */
@@ -913,9 +921,16 @@ footer {
   text-align: left !important;
   padding-left: 6px;
   border-left: 4px solid #7f8da8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .salary-month-transpose-table td.month-detail-unit-name span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-weight: 700;
 }
 

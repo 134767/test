@@ -13,6 +13,10 @@ const browserTools = [
   'browser_calendar_interval_wage_check.py',
   'browser_hour_button_multiselect_check.py',
   'browser_hour_single_controller_check.py',
+  'browser_salary_month_width_stability_check.py',
+  'browser_hour_advanced_filter_check.py',
+  'browser_holiday_single_controller_check.py',
+  'browser_salary_unit_order_actual_check.py',
 ].map(name => fs.readFileSync(new URL(`../tools/${name}`, import.meta.url), 'utf8'));
 
 test('public root is a noindex static asset notice', () => {
@@ -33,7 +37,7 @@ test('local entry declares the localStorage runtime and versioned app asset', ()
 
 test('local entry guard runs before dynamic app import', () => {
   const guard = local.indexOf("allowedHosts.includes(location.hostname)");
-  const load = local.indexOf("import('./js/app.js?v=1.6.0-budget-option-dedup-hotfix-8')");
+  const load = local.indexOf("import('./js/app.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9')");
   assert.ok(guard >= 0 && load > guard);
   assert.match(local, /\['localhost', '127\.0\.0\.1', '::1'\]/);
   assert.match(local, /Local Runtime 僅允許從本機 localhost 啟動/);
@@ -48,7 +52,7 @@ test('all local browser runtime checks open local.html', () => {
   browserTools.forEach(source => assert.match(source, /BASE = "http:\/\/127\.0\.0\.1:5500\/local\.html"/));
 });
 
-test('all active asset cachebusters use the budget option dedup hotfix token', () => {
+test('all active asset cachebusters use the HOTFIX9 combined UI token', () => {
   const repoRoot = path.resolve(import.meta.dirname, '..');
   const roots = ['js', 'gas'];
   const files = roots.flatMap(dir => fs.readdirSync(path.join(repoRoot, dir)).filter(name => /\.(js|gs|html)$/.test(name)).map(name => path.join(repoRoot, dir, name))).concat(path.join(repoRoot, 'local.html'));
@@ -56,8 +60,8 @@ test('all active asset cachebusters use the budget option dedup hotfix token', (
     const source = fs.readFileSync(file, 'utf8');
     assert.doesNotMatch(source, /\?v=1\.6\.0(?=['"]|$)/, file);
     for (const match of source.matchAll(/\?v=(1\.6\.0-[A-Za-z0-9._-]+)/g)) {
-      assert.equal(match[1], '1.6.0-budget-option-dedup-hotfix-8', file);
+      assert.equal(match[1], '1.6.0-hour-filter-holiday-salary-layout-hotfix-9', file);
     }
   });
-  assert.match(local, /1\.6\.0-budget-option-dedup-hotfix-8/);
+  assert.match(local, /1\.6\.0-hour-filter-holiday-salary-layout-hotfix-9/);
 });

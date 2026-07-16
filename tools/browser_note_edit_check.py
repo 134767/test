@@ -54,8 +54,8 @@ with sync_playwright() as p:
 
     page.click("text=時數設定")
     page.wait_for_timeout(400)
-    page.fill("#hour-search", "")
-    page.dispatch_event("#hour-search", "input")
+    page.fill("#hour-filter-keyword", "")
+    page.click("#hour-filter-query")
     page.wait_for_timeout(300)
     page.locator("#hour-tbody tr", has_text="Group_Alpha").first.locator(".btn-edit").click()
     page.wait_for_timeout(300)

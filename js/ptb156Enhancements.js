@@ -10,22 +10,31 @@ import {
   deleteHolidayName,
   isHolidayNameUsed,
   ensureHolidayNamesFromExistingCalendarHolidays
-} from './dataStore.js?v=1.6.0-budget-option-dedup-hotfix-8';
-import { renderCalendarTable } from './calendarPage.js?v=1.6.0-budget-option-dedup-hotfix-8';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-budget-option-dedup-hotfix-8';
-import { showToast, getDatesInRange, formatDateForDisplay } from './utils.js?v=1.6.0-budget-option-dedup-hotfix-8';
+} from './dataStore.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
+import { renderCalendarTable } from './calendarPage.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
+import { showToast, getDatesInRange, formatDateForDisplay } from './utils.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
 
 let holidayPage = 'settings';
 let holidayRecordPage = 1;
 let holidayNamePage = 1;
 const HOLIDAY_PAGE_SIZE = 20;
+let holidayEnhancementObserver = null;
+let holidayObservedMain = null;
 
 export function installPtb156Enhancements() {
   injectEnhancementStyles();
   const main = document.getElementById('main-content');
   if (!main) return;
   const scan = () => enhanceCalendarPage(main.querySelector('#page-calendar'));
-  new MutationObserver(scan).observe(main, { childList: true, subtree: true });
+  if (holidayEnhancementObserver && holidayObservedMain === main) {
+    scan();
+    return;
+  }
+  holidayEnhancementObserver?.disconnect();
+  holidayEnhancementObserver = new MutationObserver(scan);
+  holidayObservedMain = main;
+  holidayEnhancementObserver.observe(main, { childList: true, subtree: true });
   scan();
 }
 function injectEnhancementStyles() {
@@ -70,18 +79,22 @@ function enhanceCalendarPage(root) {
 
   root.dataset.ptb156HolidayEnhanced = 'true';
 
-  const replacementButton = originalButton;
-  replacementButton.addEventListener('click', () => openHolidayModalV2(root));
+  const replacementButton = originalButton.cloneNode(true);
+  originalButton.replaceWith(replacementButton);
+  replacementButton.addEventListener('click', event => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    openHolidayModalV2(root);
+  });
 
-  const oldModal = root.querySelector('#holiday-modal');
-  if (oldModal) {
-    oldModal.style.display = 'none';
-    oldModal.setAttribute('aria-hidden', 'true');
-  }
+  root.querySelector('#holiday-modal')?.remove();
+  root.querySelector('#holiday-modal-v2')?.remove();
 
   const modal = document.createElement('div');
   modal.id = 'holiday-modal-v2';
   modal.className = 'modal';
+  modal.setAttribute('aria-hidden', 'true');
   modal.innerHTML = `
     <div class="modal-content">
       <div class="modal-header">
@@ -172,11 +185,16 @@ function openHolidayModalV2(root) {
   renderHolidayRecordListV2(root);
   renderHolidayNameListV2(root);
   modal.style.display = 'flex';
+  modal.setAttribute('aria-hidden', 'false');
 }
 
 function closeHolidayModalV2(root) {
   const modal = root.querySelector('#holiday-modal-v2');
-  if (modal) modal.style.display = 'none';
+  if (modal) {
+    modal.style.display = 'none';
+    modal.setAttribute('aria-hidden', 'true');
+  }
+  root.querySelector('#btn-holiday-setting')?.focus();
 }
 
 function setHolidayPage(root, page) {

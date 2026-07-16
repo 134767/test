@@ -26,15 +26,15 @@ def main():
         table_text = page.locator("#hour-tbody").inner_text()
         OUT["checks"]["main_budget_unit_value"] = "Group_Alpha" in table_text
 
-        page.fill("#hour-search", "Group_Alpha")
-        page.dispatch_event("#hour-search", "input")
+        page.fill("#hour-filter-keyword", "Group_Alpha")
+        page.click("#hour-filter-query")
         page.wait_for_timeout(200)
         filtered_rows = page.locator("#hour-tbody tr")
         OUT["checks"]["search_budget_unit"] = filtered_rows.count() > 0 and all(
             "Group_Alpha" in filtered_rows.nth(i).inner_text() for i in range(filtered_rows.count())
         )
-        page.fill("#hour-search", "")
-        page.dispatch_event("#hour-search", "input")
+        page.fill("#hour-filter-keyword", "")
+        page.click("#hour-filter-query")
 
         batch = page.locator("#btn-batch-add-hour")
         OUT["checks"]["button_enabled_without_selection"] = not batch.is_disabled()
@@ -85,8 +85,8 @@ def main():
         page.reload(wait_until="networkidle", timeout=60000)
         page.click("text=時數設定")
         page.wait_for_timeout(250)
-        page.fill("#hour-search", "Group_Alpha")
-        page.dispatch_event("#hour-search", "input")
+        page.fill("#hour-filter-keyword", "Group_Alpha")
+        page.click("#hour-filter-query")
         row_check = page.locator("#hour-tbody .row-check").first
         row_check.check()
         page.click("#btn-batch-add-hour")

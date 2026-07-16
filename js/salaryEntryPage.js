@@ -1,6 +1,6 @@
-import { getBudgets, getCalendarRows, saveSalaryEntriesBatch, getSalaryEntriesByAcademicYear, getSalaryEntriesByDateRange, getUnits } from './dataStore.js?v=1.6.0-budget-option-dedup-hotfix-8';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-budget-option-dedup-hotfix-8';
-import { showToast, formatNumber } from './utils.js?v=1.6.0-budget-option-dedup-hotfix-8';
+import { getBudgets, getCalendarRows, saveSalaryEntriesBatch, getSalaryEntriesByAcademicYear, getSalaryEntriesByDateRange, getUnits } from './dataStore.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
+import { showToast, formatNumber } from './utils.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
 import {
   getDistinctBudgetNames,
   getBudgetYearsForName,
@@ -14,7 +14,8 @@ import {
   validateYm,
   getAcademicYearFromYm,
   evaluateMonthRegistrationForGroup
-} from './budgetGroupUtils.js?v=1.6.0-budget-option-dedup-hotfix-8';
+} from './budgetGroupUtils.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
+import { sortUnitCodesByUnitSettings, calculateMonthlyActualTotal } from './salaryMonthUtils.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
 
 let containerEl = null;
 let salaryFilter = { budgetName: '', mode: 'academicYear', academicYear: '', startYm: '', endYm: '', queried: false };
@@ -88,20 +89,6 @@ function buildScopeFromFilter(filter) {
     return { ok: false, error: scopeResult.error.replace(unitCode, unitDisplay) };
   }
   return scopeResult;
-}
-
-function applyStickyWidths() {
-  const table = containerEl.querySelector('#salary-month-table');
-  if (!table) return;
-  let col1 = 0;
-  let col2 = 0;
-  table.querySelectorAll('tr').forEach(tr => {
-    if (!tr.cells || tr.cells.length < 2) return;
-    col1 = Math.max(col1, tr.cells[0].scrollWidth || 0);
-    col2 = Math.max(col2, tr.cells[1].scrollWidth || 0);
-  });
-  if (col1 > 0) table.style.setProperty('--month-detail-col1-width', `${Math.ceil(col1 + 16)}px`);
-  if (col2 > 0) table.style.setProperty('--month-detail-col2-width', `${Math.ceil(col2 + 16)}px`);
 }
 
 export function initSalaryEntryPage(container) {
@@ -242,11 +229,6 @@ export function renderSalaryEntryPage() {
   renderMonthDetail(scope, rows, entries);
   const results = containerEl.querySelector('#salary-results');
   results.classList.remove('hidden');
-
-  const schedule = typeof requestAnimationFrame === 'function'
-    ? requestAnimationFrame
-    : callback => setTimeout(callback, 0);
-  schedule(applyStickyWidths);
 }
 
 function renderSummary(scope, rows, entries) {
@@ -274,8 +256,10 @@ function renderUnitSummary(scope, rows, entries) {
   const tbody = containerEl.querySelector('#salary-unit-summary-tbody');
   tbody.innerHTML = '';
   const summary = buildUnitSalarySummary({ scopeBudgets: scope.budgets, rows, entries });
+  const orderedCodes = sortUnitCodesByUnitSettings(summary.rows.map(item => item.unitCode), getUnits());
+  const summaryByCode = new Map(summary.rows.map(item => [item.unitCode, item]));
 
-  summary.rows.forEach(item => {
+  orderedCodes.map(code => summaryByCode.get(code)).filter(Boolean).forEach(item => {
     const tr = document.createElement('tr');
     tr.innerHTML = `<td>${renderColoredUnitName(item.unitCode, unitName(item.unitCode))}</td><td style="text-align:right">${formatNumber(item.estimate)}</td><td style="text-align:right">${formatNumber(item.actual)}</td><td style="text-align:right" class="${item.diff < 0 ? 'negative' : ''}">${formatNumber(item.diff)}</td>`;
     tbody.appendChild(tr);
@@ -293,6 +277,11 @@ function getMonthSequence(scope, rows) {
 }
 
 function renderMonthDetail(scope, rows, entries) {
+  const table = containerEl.querySelector('#salary-month-table');
+  // Clear legacy HOTFIX inline growth once; stylesheet owns all widths afterward.
+  table?.style.removeProperty('--month-detail-col1-width');
+  table?.style.removeProperty('--month-detail-col2-width');
+  table?.style.removeProperty('width');
   const thead = containerEl.querySelector('#salary-month-thead');
   const tbody = containerEl.querySelector('#salary-month-tbody');
   thead.innerHTML = '';
@@ -307,7 +296,10 @@ function renderMonthDetail(scope, rows, entries) {
     return;
   }
 
-  const units = [...new Set(scope.budgets.flatMap(b => normalizeBudgetUnitCodes(b.unitCodes)))];
+  const units = sortUnitCodesByUnitSettings(
+    scope.budgets.flatMap(b => normalizeBudgetUnitCodes(b.unitCodes)),
+    getUnits()
+  );
   thead.innerHTML = `<tr><th>單位</th><th>項目</th>${months.map(m => `<th>${m}</th>`).join('')}</tr>`;
 
   const budgetByAy = new Map(scope.budgets.map(b => [String(b.academicYear), b]));
@@ -319,9 +311,12 @@ function renderMonthDetail(scope, rows, entries) {
     const budget = budgetByAy.get(String(ay));
     const unitSet = new Set(budget ? normalizeBudgetUnitCodes(budget.unitCodes) : []);
     const monthRows = rows.filter(r => getYmFromDate(r.date) === ym && String(r.academicYear) === String(ay) && unitSet.has(r.unitCode));
-    const monthActual = entries
-      .filter(e => entryYm(e) === ym && String(e.academicYear) === String(ay) && unitSet.has(e.unitCode))
-      .reduce((sum, e) => sum + (Number(e.actualAmount) || 0), 0);
+    const monthActual = calculateMonthlyActualTotal({
+      entries,
+      ym,
+      academicYear: ay,
+      unitCodes: [...unitSet]
+    });
     const resolvedWage = resolveMonthlyWage(monthRows);
     const remaining = (remainingByAy.get(String(ay)) || 0) - monthActual;
     remainingByAy.set(String(ay), remaining);
@@ -329,6 +324,7 @@ function renderMonthDetail(scope, rows, entries) {
       academicYear: ay || '',
       monthLabel: ym,
       wageDisplay: resolvedWage.display,
+      actualTotal: monthActual,
       remaining
     });
   });
@@ -337,6 +333,7 @@ function renderMonthDetail(scope, rows, entries) {
     ['學年度', ym => (monthMeta.get(ym) || {}).academicYear || ''],
     ['月份', ym => (monthMeta.get(ym) || {}).monthLabel || ''],
     ['時薪', ym => (monthMeta.get(ym) || {}).wageDisplay || ''],
+    ['核銷統計', ym => formatNumber((monthMeta.get(ym) || {}).actualTotal || 0)],
     ['剩餘預算', ym => formatNumber((monthMeta.get(ym) || {}).remaining || 0)]
   ];
 
@@ -373,7 +370,10 @@ function renderMonthDetail(scope, rows, entries) {
       const noteClass = type === 'note' ? ' month-detail-note-row' : '';
       tr.className = `${groupClass}${startClass}${noteClass}`.trim();
 
-      const unitCell = rowIdx === 0 ? renderColoredUnitName(unitCode, unitName(unitCode)) : '';
+      const displayUnitName = unitName(unitCode);
+      const unitCell = rowIdx === 0
+        ? `<span title="${escapeHtml(displayUnitName)}">${renderColoredUnitName(unitCode, displayUnitName)}</span>`
+        : '';
       const firstCellClass = rowIdx === 0 ? 'month-detail-unit-name' : '';
 
       const cells = months.map(ym => {
