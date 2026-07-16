@@ -1,4 +1,4 @@
-// PTB 1.6.0 hotfix-5：統一「預算單位」文案，並簡化行事曆查詢操作。
+// PTB 1.6.0：統一「預算單位」文案、簡化行事曆查詢，並隱藏人工週期管理入口。
 
 let calendarGoogleViewsPromise = null;
 let calendarGoogleDayListPromise = null;
@@ -55,6 +55,13 @@ function replaceBudgetTerminology(root) {
     if (next.trim() === '請先選擇群組') next = next.replace('請先選擇群組', '請先選擇預算單位');
     if (next !== node.nodeValue) node.nodeValue = next;
   });
+}
+
+function removeCalendarPeriodControls(root) {
+  if (!root) return;
+  root.querySelector('#btn-add-period')?.remove();
+  root.querySelector('#btn-del-period')?.remove();
+  root.dataset.calendarPeriodControlsHidden = 'true';
 }
 
 function selectFirstCalendarAcademicYear(root) {
@@ -136,6 +143,7 @@ export function installPtb160UiLayoutHotfix5() {
   const scan = () => {
     replaceBudgetTerminology(main);
     const calendarRoot = main.querySelector('#page-calendar');
+    removeCalendarPeriodControls(calendarRoot);
     enhanceCalendarBudgetFlow(calendarRoot);
     requestCalendarGoogleViews(calendarRoot);
   };
