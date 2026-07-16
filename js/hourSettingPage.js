@@ -11,20 +11,24 @@ import {
   saveScheduleType,
   deleteScheduleType,
   isScheduleTypeUsed
-} from './dataStore.js?v=1.6.0-ui-flow-hotfix-6';
-import { formatNumber, showToast, formatTimeRange, getWeekdaysArray, arrayToWeekdays, renderPagination } from './utils.js?v=1.6.0-ui-flow-hotfix-6';
+} from './dataStore.js?v=1.6.0-hour-budget-batch-hotfix-7';
+import { formatNumber, showToast, formatTimeRange, getWeekdaysArray, arrayToWeekdays, renderPagination } from './utils.js?v=1.6.0-hour-budget-batch-hotfix-7';
 import {
   buildHourSettingDuplicateKey,
+  filterHourSettingsByBudget,
+  findSameNameTargetBudget,
+  getBatchSourceAcademicYears,
   getUniqueBudgetAcademicYears,
   planBatchHourCopy
-} from './hourBatchUtils.js?v=1.6.0-ui-flow-hotfix-6';
+} from './hourBatchUtils.js?v=1.6.0-hour-budget-batch-hotfix-7';
 import {
   getValidBudgetsForYear,
+  deriveHourBudgetUnit,
   findBudgetsByYearAndUnit,
   budgetOptionValue,
   findBudgetByOptionValue
-} from './hourBudgetScopeUtils.js?v=1.6.0-ui-flow-hotfix-6';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-ui-flow-hotfix-6';
+} from './hourBudgetScopeUtils.js?v=1.6.0-hour-budget-batch-hotfix-7';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-hour-budget-batch-hotfix-7';
 
 export {
   buildHourSettingDuplicateKey,
@@ -32,7 +36,7 @@ export {
   getValidBudgetUnitCodesForYear,
   isUnitInTargetBudgetScope,
   planBatchHourCopy
-} from './hourBatchUtils.js?v=1.6.0-ui-flow-hotfix-6';
+} from './hourBatchUtils.js?v=1.6.0-hour-budget-batch-hotfix-7';
 
 export {
   getValidBudgetsForYear,
@@ -40,13 +44,14 @@ export {
   resolveBudgetForNameAndYear,
   getDistinctValidBudgetNames,
   filterCalendarRowsByBudgetScope
-} from './hourBudgetScopeUtils.js?v=1.6.0-ui-flow-hotfix-6';
+} from './hourBudgetScopeUtils.js?v=1.6.0-hour-budget-batch-hotfix-7';
 
 let containerEl = null;
 let currentEditingId = null;
 let currentSearch = '';
 /** @type {string[]} ids currently previewed in batch modal */
 let batchModalSelectedIds = [];
+let batchModalMode = 'scope';
 /** @type {'ok'|'none'|'multiple'|'empty_year'} */
 let hourEditBudgetStatus = 'ok';
 let hourEditBlockSave = false;
@@ -64,10 +69,10 @@ export function initHourSettingPage(container) {
     <div class="page-header">
       <h2>時數設定</h2>
       <div class="toolbar">
-        <input type="text" id="hour-search" placeholder="搜尋 學年度 / 作息類型 / 單位 / 週期 / 備註" class="search-input">
+        <input type="text" id="hour-search" placeholder="搜尋 學年度 / 預算單位 / 作息類型 / 單位 / 週期 / 備註" class="search-input">
         <button id="btn-add-schedule-type" class="btn-primary">新增作息</button>
         <button id="btn-add-hour" class="btn-primary">新增時數</button>
-        <button id="btn-batch-add-hour" class="btn-primary" disabled>批次新增</button>
+        <button id="btn-batch-add-hour" class="btn-primary">批次新增</button>
         <button id="btn-delete-hour" class="btn-danger">刪除</button>
       </div>
     </div>
@@ -77,6 +82,7 @@ export function initHourSettingPage(container) {
           <tr>
             <th style="width:42px"><input type="checkbox" id="hour-all-check"></th>
             <th>學年度</th>
+            <th>預算單位</th>
             <th>作息類型</th>
             <th>單位</th>
             <th>週期類型</th>
@@ -186,27 +192,41 @@ export function initHourSettingPage(container) {
         </div>
         <div class="modal-body">
           <div class="form-row hour-batch-meta-row">
-            <div class="form-group">
-              <label>已選擇</label>
-              <div id="hour-batch-selected-count" class="hour-batch-selected-count">0 筆時數設定</div>
+            <div class="form-group hour-batch-year-group">
+              <label>來源學年度 <span class="required">*</span></label>
+              <select id="hour-batch-source-year"><option value="">請選擇來源學年度</option></select>
             </div>
+            <div class="form-group hour-batch-budget-group">
+              <label>來源預算單位 <span class="required">*</span></label>
+              <input id="hour-batch-source-budget-search" type="search" placeholder="搜尋來源預算單位">
+              <select id="hour-batch-source-budget"><option value="">請選擇來源預算單位</option></select>
+            </div>
+          </div>
+          <div class="form-row hour-batch-meta-row">
             <div class="form-group hour-batch-year-group">
               <label>目標學年度 <span class="required">*</span></label>
               <select id="hour-batch-target-year">
                 <option value="">請選擇目標學年度</option>
               </select>
             </div>
+            <div class="form-group hour-batch-budget-group">
+              <label>目標預算單位 <span class="required">*</span></label>
+              <select id="hour-batch-target-budget"><option value="">請選擇目標預算單位</option></select>
+            </div>
           </div>
           <div class="help-text" style="margin-bottom:8px;">
-            將完整複製所選資料（作息、單位、週期、時間、時數、備註）到目標學年度；僅學年度改為目標值。來源資料不會被修改。
+            系統會將來源學年度／來源預算單位的時數設定，複製至指定的目標學年度／目標預算單位。僅複製目標預算單位仍包含的實際單位；來源資料不會被修改。
           </div>
+          <div id="hour-batch-selected-count" class="hour-batch-selected-count">0 筆時數設定</div>
+          <div id="hour-batch-plan-summary" class="hour-batch-plan-summary"></div>
           <div class="table-wrapper hour-batch-preview-wrap">
             <table class="data-table hour-batch-preview-table" id="hour-batch-preview-table">
               <thead>
                 <tr>
                   <th>來源學年度</th>
+                  <th>來源預算單位</th>
                   <th>作息類型</th>
-                  <th>單位</th>
+                  <th>實際單位</th>
                   <th>週期類型</th>
                   <th>開館時間</th>
                   <th style="text-align:right">時數</th>
@@ -306,6 +326,26 @@ function bindHourEvents() {
       if (e.target === batchModal) hideBatchAddHourModal();
     });
   }
+  const sourceYear = containerEl.querySelector('#hour-batch-source-year');
+  const sourceSearch = containerEl.querySelector('#hour-batch-source-budget-search');
+  const sourceBudget = containerEl.querySelector('#hour-batch-source-budget');
+  const targetYear = containerEl.querySelector('#hour-batch-target-year');
+  const targetBudget = containerEl.querySelector('#hour-batch-target-budget');
+  if (sourceYear) sourceYear.addEventListener('change', () => {
+    populateBatchSourceBudgetSelect('');
+    rebuildBatchHourPreview({ autoTarget: true });
+  });
+  if (sourceSearch) sourceSearch.addEventListener('input', () => {
+    const selected = sourceBudget?.value || '';
+    populateBatchSourceBudgetSelect(selected);
+    rebuildBatchHourPreview({ autoTarget: true });
+  });
+  if (sourceBudget) sourceBudget.addEventListener('change', () => rebuildBatchHourPreview({ autoTarget: true }));
+  if (targetYear) targetYear.addEventListener('change', () => {
+    populateBatchTargetBudgetSelect('', true);
+    rebuildBatchPlanSummary();
+  });
+  if (targetBudget) targetBudget.addEventListener('change', rebuildBatchPlanSummary);
 }
 
 function setHourBudgetHint(text) {
@@ -471,15 +511,17 @@ export function renderHourTable() {
   const allCheck = containerEl.querySelector('#hour-all-check');
   if (!tbody) return;
 
-  let data = getHourSettings();
+  const budgets = getBudgets();
+  let data = getHourSettings().map(item => ({ item, derived: deriveHourBudgetUnit(budgets, item.academicYear, item.unitCode) }));
 
   // 套用搜尋
   if (currentSearch) {
     const kw = currentSearch;
-    data = data.filter(h => {
+    data = data.filter(({ item: h, derived }) => {
       const unitStr = `${h.unitCode} ${h.unitName}`.toLowerCase();
       return (
         (h.academicYear || '').toLowerCase().includes(kw) ||
+        derived.label.toLowerCase().includes(kw) ||
         (h.scheduleType || '').toLowerCase().includes(kw) ||
         unitStr.includes(kw) ||
         (h.weekdays || '').toLowerCase().includes(kw) ||
@@ -490,14 +532,17 @@ export function renderHourTable() {
 
   // 排序：學年度 desc, 作息, 單位
   data.sort((a, b) => {
-    if (a.academicYear !== b.academicYear) return b.academicYear.localeCompare(a.academicYear);
-    if (a.scheduleType !== b.scheduleType) return a.scheduleType.localeCompare(b.scheduleType);
-    return a.unitName.localeCompare(b.unitName);
+    const ai = a.item;
+    const bi = b.item;
+    if (ai.academicYear !== bi.academicYear) return bi.academicYear.localeCompare(ai.academicYear);
+    if (a.derived.label !== b.derived.label) return a.derived.label.localeCompare(b.derived.label, 'zh-Hant');
+    if (ai.scheduleType !== bi.scheduleType) return ai.scheduleType.localeCompare(bi.scheduleType, 'zh-Hant');
+    return (ai.unitName || ai.unitCode || '').localeCompare(bi.unitName || bi.unitCode || '', 'zh-Hant');
   });
 
   tbody.innerHTML = '';
 
-  data.forEach(item => {
+  data.forEach(({ item, derived }) => {
     const tr = document.createElement('tr');
     const wd = item.weekdays ? item.weekdays.replace(/\|/g, '、') : '';
     const time = `${item.startTime}~${item.endTime}`;
@@ -505,6 +550,7 @@ export function renderHourTable() {
     tr.innerHTML = `
       <td><input type="checkbox" class="row-check" data-id="${item.id}"></td>
       <td>${item.academicYear}</td>
+      <td class="${derived.warning ? 'hour-budget-unit-warning' : ''}">${escapeHtml(derived.label)}</td>
       <td>${escapeHtml(item.scheduleType)}</td>
       <td>${escapeHtml(item.unitName)}</td>
       <td>${escapeHtml(wd)}</td>
@@ -551,8 +597,7 @@ export function updateBatchAddButtonState() {
   if (!containerEl) return;
   const btn = containerEl.querySelector('#btn-batch-add-hour');
   if (!btn) return;
-  const count = getSelectedHourIds().length;
-  btn.disabled = count === 0;
+  btn.disabled = false;
 }
 
 async function handleDeleteSelected() {
@@ -587,40 +632,71 @@ async function handleDeleteSelected() {
 
 // ===== Batch Add =====
 
-export function populateBatchTargetYearSelect(selected = '') {
-  const sel = containerEl ? containerEl.querySelector('#hour-batch-target-year') : null;
-  if (!sel) return { years: [], hasYears: false };
-
-  const years = getUniqueBudgetAcademicYears(getBudgets());
-  sel.innerHTML = '';
-
-  if (years.length === 0) {
-    const opt = document.createElement('option');
-    opt.value = '';
-    opt.textContent = '請先建立預算設定';
-    sel.appendChild(opt);
-    sel.disabled = true;
-    return { years, hasYears: false };
-  }
-
-  sel.disabled = false;
+function fillBatchSelect(sel, placeholderText, items, selected = '') {
+  if (!sel) return;
+  sel.replaceChildren();
   const placeholder = document.createElement('option');
   placeholder.value = '';
-  placeholder.textContent = '請選擇目標學年度';
+  placeholder.textContent = placeholderText;
   sel.appendChild(placeholder);
-
-  years.forEach(y => {
+  items.forEach(item => {
     const opt = document.createElement('option');
-    opt.value = y;
-    opt.textContent = y;
-    if (String(selected) === String(y)) opt.selected = true;
+    opt.value = item.value;
+    opt.textContent = item.label;
+    if (item.value === selected) opt.selected = true;
     sel.appendChild(opt);
   });
+  sel.disabled = items.length === 0;
+}
 
+export function populateBatchSourceYearSelect(selected = '') {
+  const sel = containerEl?.querySelector('#hour-batch-source-year');
+  const years = getBatchSourceAcademicYears(getHourSettings(), getBudgets());
+  fillBatchSelect(sel, years.length ? '請選擇來源學年度' : '沒有可用的來源學年度', years.map(y => ({ value: y, label: y })), String(selected || ''));
+  return years;
+}
+
+export function populateBatchTargetYearSelect(selected = '') {
+  const sel = containerEl ? containerEl.querySelector('#hour-batch-target-year') : null;
+  const years = getUniqueBudgetAcademicYears(getBudgets());
+  fillBatchSelect(sel, years.length ? '請選擇目標學年度' : '請先建立預算設定', years.map(y => ({ value: y, label: y })), String(selected || ''));
   return { years, hasYears: true };
 }
 
-export function renderBatchHourPreview(sourceItems = []) {
+export function populateBatchSourceBudgetSelect(selected = '') {
+  const year = containerEl?.querySelector('#hour-batch-source-year')?.value || '';
+  const query = (containerEl?.querySelector('#hour-batch-source-budget-search')?.value || '').trim().toLowerCase();
+  const list = getValidBudgetsForYear(getBudgets(), year).filter(b => !query || b.budgetName.toLowerCase().includes(query));
+  fillBatchSelect(
+    containerEl?.querySelector('#hour-batch-source-budget'),
+    year ? (list.length ? '請選擇來源預算單位' : '沒有符合的來源預算單位') : '請先選擇來源學年度',
+    list.map(b => ({ value: budgetOptionValue(b), label: b.budgetName })),
+    selected
+  );
+  return list;
+}
+
+export function populateBatchTargetBudgetSelect(selected = '', autoSameName = false) {
+  const year = containerEl?.querySelector('#hour-batch-target-year')?.value || '';
+  const sourceYear = containerEl?.querySelector('#hour-batch-source-year')?.value || '';
+  const sourceValue = containerEl?.querySelector('#hour-batch-source-budget')?.value || '';
+  const sourceBudget = findBudgetByOptionValue(getBudgets(), sourceValue, sourceYear);
+  const list = getValidBudgetsForYear(getBudgets(), year);
+  let value = selected;
+  if (autoSameName && sourceBudget) {
+    const match = findSameNameTargetBudget(getBudgets(), sourceBudget, year);
+    value = match ? budgetOptionValue(match) : '';
+  }
+  fillBatchSelect(
+    containerEl?.querySelector('#hour-batch-target-budget'),
+    year ? (list.length ? '請選擇目標預算單位' : '此年度沒有有效預算單位') : '請先選擇目標學年度',
+    list.map(b => ({ value: budgetOptionValue(b), label: b.budgetName })),
+    value
+  );
+  return list;
+}
+
+export function renderBatchHourPreview(sourceItems = [], sourceBudget = null) {
   const tbody = containerEl ? containerEl.querySelector('#hour-batch-preview-tbody') : null;
   const countEl = containerEl ? containerEl.querySelector('#hour-batch-selected-count') : null;
   if (countEl) countEl.textContent = `${sourceItems.length} 筆時數設定`;
@@ -629,7 +705,7 @@ export function renderBatchHourPreview(sourceItems = []) {
   tbody.innerHTML = '';
   if (!sourceItems.length) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td colspan="7" style="text-align:center;color:#888;">沒有可預覽的資料</td>`;
+    tr.innerHTML = `<td colspan="8" style="text-align:center;color:#888;">此來源學年度與預算單位沒有可複製的時數設定</td>`;
     tbody.appendChild(tr);
     return;
   }
@@ -640,6 +716,7 @@ export function renderBatchHourPreview(sourceItems = []) {
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${escapeHtml(item.academicYear)}</td>
+      <td>${escapeHtml(sourceBudget?.budgetName || deriveHourBudgetUnit(getBudgets(), item.academicYear, item.unitCode).label)}</td>
       <td>${escapeHtml(item.scheduleType)}</td>
       <td>${escapeHtml(item.unitName)}</td>
       <td>${escapeHtml(wd)}</td>
@@ -649,6 +726,64 @@ export function renderBatchHourPreview(sourceItems = []) {
     `;
     tbody.appendChild(tr);
   });
+}
+
+function analyzeSelectedBatchScope(ids) {
+  const byId = new Map(getHourSettings().map(h => [h.id, h]));
+  const rows = ids.map(id => byId.get(id)).filter(Boolean);
+  if (rows.length !== ids.length || !rows.length) return { ok: false };
+  const scopes = rows.map(row => ({ row, derived: deriveHourBudgetUnit(getBudgets(), row.academicYear, row.unitCode) }));
+  if (scopes.some(x => x.derived.status !== 'unique')) return { ok: false };
+  const keys = new Set(scopes.map(x => `${x.row.academicYear}\u0001${budgetOptionValue(x.derived.budget)}`));
+  if (keys.size !== 1) return { ok: false };
+  return { ok: true, rows, academicYear: rows[0].academicYear, budget: scopes[0].derived.budget };
+}
+
+function rebuildBatchHourPreview({ autoTarget = false } = {}) {
+  const sourceYear = containerEl?.querySelector('#hour-batch-source-year')?.value || '';
+  const sourceValue = containerEl?.querySelector('#hour-batch-source-budget')?.value || '';
+  const sourceBudget = findBudgetByOptionValue(getBudgets(), sourceValue, sourceYear);
+  let rows = [];
+  if (sourceBudget) {
+    if (batchModalMode === 'selected') {
+      const byId = new Map(getHourSettings().map(h => [h.id, h]));
+      rows = batchModalSelectedIds.map(id => byId.get(id)).filter(Boolean);
+    } else {
+      rows = filterHourSettingsByBudget({ hourSettings: getHourSettings(), budgets: getBudgets(), academicYear: sourceYear, budgetId: sourceValue }).rows;
+      batchModalSelectedIds = rows.map(row => row.id);
+    }
+  } else if (batchModalMode === 'scope') {
+    batchModalSelectedIds = [];
+  }
+  renderBatchHourPreview(rows, sourceBudget);
+  if (autoTarget && containerEl?.querySelector('#hour-batch-target-year')?.value) {
+    populateBatchTargetBudgetSelect('', true);
+  }
+  rebuildBatchPlanSummary();
+}
+
+function rebuildBatchPlanSummary() {
+  const el = containerEl?.querySelector('#hour-batch-plan-summary');
+  const confirm = containerEl?.querySelector('#hour-batch-confirm-btn');
+  if (!el || !confirm) return null;
+  const sourceAcademicYear = containerEl.querySelector('#hour-batch-source-year')?.value || '';
+  const sourceBudgetId = containerEl.querySelector('#hour-batch-source-budget')?.value || '';
+  const targetAcademicYear = containerEl.querySelector('#hour-batch-target-year')?.value || '';
+  const targetBudgetId = containerEl.querySelector('#hour-batch-target-budget')?.value || '';
+  if (!sourceAcademicYear || !sourceBudgetId || !targetAcademicYear || !targetBudgetId || !batchModalSelectedIds.length) {
+    el.textContent = '';
+    confirm.disabled = true;
+    return null;
+  }
+  const plan = planBatchHourCopy({ sourceIds: batchModalSelectedIds, sourceAcademicYear, sourceBudgetId, targetAcademicYear, targetBudgetId, hourSettings: getHourSettings(), units: getUnits(), budgets: getBudgets() });
+  if (!plan.ok) {
+    el.textContent = plan.error || '';
+    confirm.disabled = true;
+    return plan;
+  }
+  el.textContent = `來源：${sourceAcademicYear} 學年度／${plan.sourceBudgetName}　目標：${targetAcademicYear} 學年度／${plan.targetBudgetName}　準備新增：${plan.toAdd.length} 筆　預計略過：${plan.skipped.length} 筆`;
+  confirm.disabled = false;
+  return plan;
 }
 
 function clearBatchResultPanel() {
@@ -681,6 +816,7 @@ function renderBatchResultPanel(plan) {
   el.style.display = 'block';
   el.innerHTML = `
     <div class="hour-batch-result-summary">
+      來源預算單位：${escapeHtml(plan.sourceBudgetName || '')}；目標預算單位：${escapeHtml(plan.targetBudgetName || '')}；
       選取 ${c.selected || 0} 筆；新增 ${c.added || 0} 筆；
       重複略過 ${c.duplicateSkipped || 0}；
       無效單位 ${c.invalidUnitSkipped || 0}；
@@ -706,38 +842,35 @@ function renderBatchResultPanel(plan) {
 export function showBatchAddHourModal() {
   if (!containerEl) return;
   const ids = getSelectedHourIds();
-  if (!ids.length) {
-    showToast('請先勾選要批次新增的資料', 'error');
-    updateBatchAddButtonState();
-    return;
-  }
-
-  // 依 id 重新從完整資料取回（不受搜尋畫面外資料影響）
-  const all = getHourSettings();
-  const byId = new Map(all.map(h => [h.id, h]));
-  const sources = [];
-  const missing = [];
-  ids.forEach(id => {
-    const item = byId.get(id);
-    if (item) sources.push(item);
-    else missing.push(id);
-  });
-
-  batchModalSelectedIds = ids.slice();
+  const sourceYear = containerEl.querySelector('#hour-batch-source-year');
+  const sourceSearch = containerEl.querySelector('#hour-batch-source-budget-search');
+  const sourceBudget = containerEl.querySelector('#hour-batch-source-budget');
+  batchModalMode = ids.length ? 'selected' : 'scope';
   clearBatchResultPanel();
+  if (sourceSearch) sourceSearch.value = '';
+  populateBatchSourceYearSelect('');
+  populateBatchTargetYearSelect('');
+  populateBatchTargetBudgetSelect('');
 
-  const countEl = containerEl.querySelector('#hour-batch-selected-count');
-  if (countEl) countEl.textContent = `${ids.length} 筆時數設定`;
-
-  const { hasYears } = populateBatchTargetYearSelect('');
-  renderBatchHourPreview(sources);
-
-  const confirmBtn = containerEl.querySelector('#hour-batch-confirm-btn');
-  if (confirmBtn) confirmBtn.disabled = !hasYears;
-
-  if (missing.length) {
-    showToast(`有 ${missing.length} 筆勾選資料找不到來源，將於執行時略過`, 'info');
+  if (ids.length) {
+    const scope = analyzeSelectedBatchScope(ids);
+    if (!scope.ok) {
+      showToast('勾選資料包含不同來源學年度或不同預算單位，請改用單一預算單位範圍。', 'error');
+      return;
+    }
+    batchModalSelectedIds = ids.slice();
+    sourceYear.value = scope.academicYear;
+    populateBatchSourceBudgetSelect(budgetOptionValue(scope.budget));
+    sourceBudget.value = budgetOptionValue(scope.budget);
+    sourceYear.disabled = true;
+    sourceBudget.disabled = true;
+    if (sourceSearch) sourceSearch.disabled = true;
+  } else {
+    batchModalSelectedIds = [];
+    sourceYear.disabled = false;
+    if (sourceSearch) sourceSearch.disabled = false;
   }
+  rebuildBatchHourPreview();
 
   const modal = containerEl.querySelector('#hour-batch-add-modal');
   if (modal) modal.style.display = 'flex';
@@ -747,42 +880,61 @@ export function hideBatchAddHourModal() {
   const modal = containerEl ? containerEl.querySelector('#hour-batch-add-modal') : null;
   if (modal) modal.style.display = 'none';
   batchModalSelectedIds = [];
+  batchModalMode = 'scope';
   clearBatchResultPanel();
 }
 
 export async function handleBatchAddHourSettings() {
   if (!containerEl) return;
 
-  const yearSel = containerEl.querySelector('#hour-batch-target-year');
-  const targetAy = yearSel ? String(yearSel.value || '').trim() : '';
+  const sourceAy = String(containerEl.querySelector('#hour-batch-source-year')?.value || '').trim();
+  const sourceBudgetId = String(containerEl.querySelector('#hour-batch-source-budget')?.value || '').trim();
+  const targetAy = String(containerEl.querySelector('#hour-batch-target-year')?.value || '').trim();
+  const targetBudgetId = String(containerEl.querySelector('#hour-batch-target-budget')?.value || '').trim();
   const years = getUniqueBudgetAcademicYears(getBudgets());
 
   if (!years.length) {
     showToast('請先建立預算設定', 'error');
     return;
   }
-  if (!targetAy) {
-    showToast('請選擇目標學年度', 'error');
+  if (!sourceAy || !sourceBudgetId) {
+    showToast('請選擇來源學年度與來源預算單位', 'error');
+    return;
+  }
+  if (!targetAy || !targetBudgetId) {
+    showToast('請選擇目標學年度與目標預算單位', 'error');
     return;
   }
 
   // 按下確認時以目前勾選（或 modal 開啟時 ids）為準，並重新取完整資料
-  const ids = (getSelectedHourIds().length ? getSelectedHourIds() : batchModalSelectedIds).slice();
+  const ids = batchModalSelectedIds.slice();
   if (!ids.length) {
-    showToast('請先勾選要批次新增的資料', 'error');
+    showToast('此來源學年度與預算單位沒有可複製的時數設定', 'error');
     return;
   }
 
   const plan = planBatchHourCopy({
     sourceIds: ids,
+    sourceAcademicYear: sourceAy,
+    sourceBudgetId,
     targetAcademicYear: targetAy,
+    targetBudgetId,
     hourSettings: getHourSettings(),
     units: getUnits(),
     budgets: getBudgets()
   });
+  if (!plan.ok) {
+    showToast(plan.error || '批次新增範圍無效', 'error');
+    return plan;
+  }
 
   const sourceSnapshot = new Map(getHourSettings().map(h => [h.id, { ...h }]));
   let result;
+  if (!plan.toAdd.length) {
+    renderBatchResultPanel(plan);
+    showToast('批次新增失敗：0 筆新增，請查看略過原因', 'error');
+    return plan;
+  }
   try { result = await runWithMutationUiLock([containerEl.querySelector('#hour-batch-confirm-btn'),containerEl.querySelector('#hour-batch-cancel-btn')],()=>saveHourSettingsBatch(plan.toAdd.map(entry=>({...entry.payload,sourceId:entry.sourceId}))),{blocking:true}); } catch { return; }
   const counters = { ...plan.counters, ...result, added: result.added || 0 };
   const finalPlan = { ...plan, counters, saved: result.addedRecords || [], skipped: [...plan.skipped,...(result.skipped||[])] };
@@ -802,11 +954,7 @@ export async function handleBatchAddHourSettings() {
 
   renderBatchResultPanel(finalPlan);
 
-  const skippedTotal =
-    (counters.duplicateSkipped || 0) +
-    (counters.invalidUnitSkipped || 0) +
-    (counters.outOfBudgetScopeSkipped || 0) +
-    (counters.missingSourceSkipped || 0);
+  const skippedTotal = finalPlan.skipped.length;
 
   if (counters.added > 0) {
     if (skippedTotal > 0) {

@@ -185,7 +185,7 @@ def main():
         OUT["checks"]["hour_new_saved"] = has_new
 
         # edit flow: open first edit that has unique match
-        page.locator("#hour-tbody .btn-edit").first.click()
+        page.locator("#hour-tbody tr", has_text="Group_Alpha").first.locator(".btn-edit").click()
         page.wait_for_timeout(500)
         bg_val = page.locator("#hour-budget-group").input_value()
         unit_active = page.locator("#hour-unit .hour-choice-btn.active").count()
@@ -194,9 +194,10 @@ def main():
         page.click("#hour-cancel-btn")
         page.wait_for_timeout(200)
 
-        # batch regression: button disabled then enable
-        OUT["checks"]["batch_btn_disabled"] = page.locator("#btn-batch-add-hour").is_disabled()
-        page.locator("#hour-tbody .row-check").first.check()
+        # batch regression: direct scope mode stays available without selection
+        OUT["checks"]["batch_btn_disabled"] = not page.locator("#btn-batch-add-hour").is_disabled()
+        # Select a row whose academicYear + unitCode resolves to exactly one budget.
+        page.locator("#hour-tbody tr", has_text="Group_Alpha").first.locator(".row-check").check()
         page.wait_for_timeout(100)
         OUT["checks"]["batch_btn_enabled"] = not page.locator("#btn-batch-add-hour").is_disabled()
         page.click("#btn-batch-add-hour")

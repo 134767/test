@@ -1289,12 +1289,38 @@ button {
   min-width: 160px;
 }
 
+.hour-batch-budget-group {
+  min-width: 240px;
+}
+
+.hour-batch-budget-group input,
+.hour-batch-budget-group select {
+  width: 100%;
+}
+
+.hour-batch-budget-group input {
+  margin-bottom: 6px;
+}
+
+.hour-batch-plan-summary {
+  margin: 6px 0 10px;
+  color: #334155;
+  font-size: 14px;
+}
+
+.hour-budget-unit-warning {
+  color: #b42318;
+  background: #fff1f0;
+  font-weight: 600;
+}
+
 @media (max-width: 768px) {
   .hour-batch-meta-row {
     flex-direction: column;
   }
   .hour-batch-year-group,
-  .hour-batch-year-group select {
+  .hour-batch-year-group select,
+  .hour-batch-budget-group {
     width: 100%;
   }
   .hour-batch-preview-wrap {

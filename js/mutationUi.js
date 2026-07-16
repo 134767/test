@@ -1,4 +1,4 @@
-import { beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-ui-flow-hotfix-6';
+import { beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-hour-budget-batch-hotfix-7';
 
 const active = new WeakSet();
 

@@ -5,6 +5,7 @@ import {
   getDistinctValidBudgetNames,
   getYearsForBudgetName,
   resolveBudgetForNameAndYear,
+  deriveHourBudgetUnit,
   findBudgetsByYearAndUnit,
   filterCalendarRowsByBudgetScope,
   budgetOptionValue,
@@ -76,6 +77,21 @@ test('edit derivation multiple match', () => {
   const r = findBudgetsByYearAndUnit(bad, '114', 'U1');
   assert.equal(r.status, 'multiple');
   assert.equal(r.budgets.length, 2);
+});
+
+test('hour table budget-unit display distinguishes unique, none, and multiple', () => {
+  assert.equal(deriveHourBudgetUnit(budgets, '114', 'U_A1').label, 'Group_Alpha');
+  const none = deriveHourBudgetUnit(budgets, '114', 'NOPE');
+  assert.equal(none.status, 'none');
+  assert.equal(none.label, '未對應預算單位');
+  assert.equal(none.warning, true);
+  const multiple = deriveHourBudgetUnit([
+    { id: 'X1', academicYear: '114', budgetName: 'A', unitCodes: ['U1'], budgetAmount: 1 },
+    { id: 'X2', academicYear: '114', budgetName: 'B', unitCodes: ['U1'], budgetAmount: 1 }
+  ], '114', 'U1');
+  assert.equal(multiple.status, 'multiple');
+  assert.equal(multiple.label, '預算單位異常');
+  assert.equal(multiple.warning, true);
 });
 
 test('filter rows academic year scoped to group units only', () => {

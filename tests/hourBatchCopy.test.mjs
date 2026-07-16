@@ -2,353 +2,106 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildHourSettingDuplicateKey,
-  getUniqueBudgetAcademicYears,
-  getValidBudgetUnitCodesForYear,
-  isUnitInTargetBudgetScope,
+  filterHourSettingsByBudget,
+  findSameNameTargetBudget,
+  getBatchSourceAcademicYears,
   planBatchHourCopy
 } from '../js/hourBatchUtils.js';
 
-const sampleRows = [
-  {
-    id: 'H1',
-    academicYear: '114',
-    scheduleType: '開學期間',
-    unitCode: 'U_A1',
-    unitName: '公博流通',
-    weekdays: '星期一|星期二|星期三|星期四|星期五',
-    startTime: '08:00',
-    endTime: '21:30',
-    hours: 34,
-    hourlyWage: 196,
-    note: ''
-  },
-  {
-    id: 'H2',
-    academicYear: '114',
-    scheduleType: '開學期間',
-    unitCode: 'U_C1',
-    unitName: '國璽流通兼自學中心',
-    weekdays: '星期一|星期二|星期三|星期四|星期五',
-    startTime: '08:00',
-    endTime: '21:00',
-    hours: 32,
-    hourlyWage: 196,
-    note: ''
-  },
-  {
-    id: 'H3',
-    academicYear: '114',
-    scheduleType: '開學期間',
-    unitCode: 'U_C1',
-    unitName: '國璽流通兼自學中心',
-    weekdays: '星期一|星期二|星期三|星期四|星期五',
-    startTime: '21:00',
-    endTime: '23:00',
-    hours: 2,
-    hourlyWage: 196,
-    note: '自學中心(平日)'
-  },
-  {
-    id: 'H4',
-    academicYear: '114',
-    scheduleType: '開學期間',
-    unitCode: 'U_B1',
-    unitName: '濟時流通',
-    weekdays: '星期一|星期二|星期三|星期四|星期五',
-    startTime: '08:00',
-    endTime: '22:00',
-    hours: 34,
-    hourlyWage: 196,
-    note: ''
-  }
+const budgets = [
+  { id: 'B114A', academicYear: '114', budgetName: '圖書館預算', unitCodes: ['U_A1', 'U_A2'], budgetAmount: 1 },
+  { id: 'B114B', academicYear: '114', budgetName: '其他預算', unitCodes: ['U_B1'], budgetAmount: 1 },
+  { id: 'B115A', academicYear: '115', budgetName: '圖書館預算', unitCodes: ['U_A1'], budgetAmount: 1 },
+  { id: 'B115B', academicYear: '115', budgetName: '其他預算', unitCodes: ['U_A2', 'U_B1'], budgetAmount: 1 },
+  { id: 'B116X', academicYear: '116', budgetName: '不同名稱', unitCodes: ['U_A1'], budgetAmount: 1 }
+];
+
+const rows = [
+  { id: 'H1', academicYear: '114', scheduleType: '開學', unitCode: 'U_A1', unitName: 'A1 old', weekdays: '星期一', startTime: '08:00', endTime: '09:00', hours: 1, note: 'one' },
+  { id: 'H2', academicYear: '114', scheduleType: '開學', unitCode: 'U_A2', unitName: 'A2 old', weekdays: '星期二', startTime: '09:00', endTime: '10:00', hours: 1, note: 'two' },
+  { id: 'H3', academicYear: '114', scheduleType: '假日', unitCode: 'U_B1', unitName: 'B1 old', weekdays: '星期六', startTime: '10:00', endTime: '11:00', hours: 1, note: 'three' }
 ];
 
 const units = [
-  { unitCode: 'U_A1', unitName: 'Unit_A1_Latest' },
-  { unitCode: 'U_B1', unitName: 'Unit_B1_Latest' },
-  { unitCode: 'U_C1', unitName: 'Unit_C1_Latest' }
+  { unitCode: 'U_A1', unitName: 'A1 latest' },
+  { unitCode: 'U_A2', unitName: 'A2 latest' },
+  { unitCode: 'U_B1', unitName: 'B1 latest' }
 ];
 
-const budgets = [
-  { academicYear: '114', budgetName: 'Group_Alpha', unitCodes: ['U_A1', 'U_A2'], budgetAmount: 1 },
-  { academicYear: '114', budgetName: 'Group_Beta', unitCodes: ['U_B1', 'U_B2'], budgetAmount: 1 },
-  { academicYear: '114', budgetName: 'Group_Gamma', unitCodes: ['U_C1'], budgetAmount: 1 },
-  { academicYear: '115', budgetName: 'Group_Alpha', unitCodes: ['U_A1', 'U_C1'], budgetAmount: 1 },
-  { academicYear: '115', budgetName: 'Group_Beta', unitCodes: ['U_B1'], budgetAmount: 1 },
-  { academicYear: '115', budgetName: 'Group_Alpha_dup', unitCodes: ['U_A1'], budgetAmount: 1 },
-  { academicYear: '115', budgetName: '', unitCodes: ['U_X'], budgetAmount: 1 },
-  { academicYear: '115', budgetName: 'EmptyUnits', unitCodes: [], budgetAmount: 1 }
-];
-
-test('target_years_unique newest first', () => {
-  const years = getUniqueBudgetAcademicYears(budgets);
-  assert.deepEqual(years, ['115', '114']);
+const plan = overrides => planBatchHourCopy({
+  sourceIds: ['H1', 'H2'],
+  sourceAcademicYear: '114',
+  sourceBudgetId: 'B114A',
+  targetAcademicYear: '115',
+  targetBudgetId: 'B115A',
+  hourSettings: rows,
+  units,
+  budgets,
+  ...overrides
 });
 
-test('duplicate key ignores note/hours/wage', () => {
-  const a = buildHourSettingDuplicateKey({
-    academicYear: '115',
-    scheduleType: 'A',
-    unitCode: 'U1',
-    weekdays: '星期一',
-    startTime: '08:00',
-    endTime: '09:00',
-    note: 'x',
-    hours: 1,
-    hourlyWage: 1
-  });
-  const b = buildHourSettingDuplicateKey({
-    academicYear: '115',
-    scheduleType: 'A',
-    unitCode: 'U1',
-    weekdays: '星期一',
-    startTime: '08:00',
-    endTime: '09:00',
-    note: 'y',
-    hours: 9,
-    hourlyWage: 9
-  });
-  assert.equal(a, b);
+test('source academic years require both hour rows and valid budgets', () => {
+  assert.deepEqual(getBatchSourceAcademicYears(rows, budgets), ['114']);
 });
 
-test('copy_four_rows_to_new_year plan', () => {
-  const plan = planBatchHourCopy({
-    sourceIds: ['H1', 'H2', 'H3', 'H4'],
-    targetAcademicYear: '115',
-    hourSettings: sampleRows,
-    units,
-    budgets
-  });
-  assert.equal(plan.counters.selected, 4);
-  assert.equal(plan.counters.added, 4);
-  assert.equal(plan.toAdd.length, 4);
-  plan.toAdd.forEach(entry => {
-    assert.equal(entry.payload.academicYear, '115');
-  });
-  const h3 = plan.toAdd.find(e => e.sourceId === 'H3');
-  assert.equal(h3.payload.note, '自學中心(平日)');
-  assert.equal(h3.payload.startTime, '21:00');
-  assert.equal(h3.payload.endTime, '23:00');
+test('source budget filter excludes same-year other budget units', () => {
+  const result = filterHourSettingsByBudget({ hourSettings: rows, budgets, academicYear: '114', budgetId: 'B114A' });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.rows.map(row => row.id), ['H1', 'H2']);
 });
 
-test('copied_fields_preserved and unit_name_uses_latest_master_value', () => {
-  const plan = planBatchHourCopy({
-    sourceIds: ['H1'],
-    targetAcademicYear: '115',
-    hourSettings: sampleRows,
-    units,
-    budgets
-  });
-  const p = plan.toAdd[0].payload;
-  const src = sampleRows[0];
-  assert.equal(p.scheduleType, src.scheduleType);
-  assert.equal(p.unitCode, src.unitCode);
-  assert.equal(p.weekdays, src.weekdays);
-  assert.equal(p.startTime, src.startTime);
-  assert.equal(p.endTime, src.endTime);
-  assert.equal(p.hours, src.hours);
-  assert.equal(Object.hasOwn(p, 'hourlyWage'), false);
-  assert.equal(p.note, src.note);
-  assert.equal(p.unitName, 'Unit_A1_Latest');
-  assert.notEqual(p.unitName, src.unitName);
+test('same-name cross-year target auto match is unique only', () => {
+  assert.equal(findSameNameTargetBudget(budgets, budgets[0], '115')?.id, 'B115A');
+  assert.equal(findSameNameTargetBudget(budgets, budgets[0], '116'), null);
 });
 
-test('duplicate_target_rows_skipped', () => {
-  const existing = [
-    ...sampleRows,
-    {
-      id: 'H115',
-      academicYear: '115',
-      scheduleType: '開學期間',
-      unitCode: 'U_A1',
-      unitName: 'Unit_A1_Latest',
-      weekdays: '星期一|星期二|星期三|星期四|星期五',
-      startTime: '08:00',
-      endTime: '21:30',
-      hours: 34,
-      hourlyWage: 196,
-      note: 'already'
-    }
-  ];
-  const plan = planBatchHourCopy({
-    sourceIds: ['H1', 'H2', 'H3', 'H4'],
-    targetAcademicYear: '115',
-    hourSettings: existing,
-    units,
-    budgets
-  });
-  assert.equal(plan.counters.duplicateSkipped, 1);
-  assert.equal(plan.counters.added, 3);
+test('source and target budget ids are required and year-bound', () => {
+  assert.equal(plan({ sourceBudgetId: '' }).ok, false);
+  assert.match(plan({ sourceBudgetId: 'B115A' }).error, /來源預算單位/);
+  assert.equal(plan({ targetBudgetId: '' }).ok, false);
+  assert.match(plan({ targetBudgetId: 'B114A' }).error, /目標預算單位/);
 });
 
-test('duplicates_inside_batch_skipped', () => {
-  const mixed = [
-    ...sampleRows,
-    {
-      id: 'H5',
-      academicYear: '113',
-      scheduleType: '開學期間',
-      unitCode: 'U_A1',
-      unitName: '公博流通',
-      weekdays: '星期一|星期二|星期三|星期四|星期五',
-      startTime: '08:00',
-      endTime: '21:30',
-      hours: 99,
-      hourlyWage: 1,
-      note: 'different note but same key after year map'
-    }
-  ];
-  const plan = planBatchHourCopy({
-    sourceIds: ['H1', 'H5'],
-    targetAcademicYear: '115',
-    hourSettings: mixed,
-    units,
-    budgets
-  });
-  assert.equal(plan.counters.added, 1);
-  assert.equal(plan.counters.duplicateSkipped, 1);
+test('exact target budget scope blocks a unit found only in another target budget', () => {
+  const result = plan();
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.toAdd.map(entry => entry.sourceId), ['H1']);
+  assert.equal(result.counters.outOfBudgetScopeSkipped, 1);
+  assert.equal(result.skipped[0].reason, '目標預算單位未包含此實際單位');
 });
 
-test('invalid_unit_skipped', () => {
-  const rows = [
-    {
-      id: 'HX',
-      academicYear: '114',
-      scheduleType: '開學期間',
-      unitCode: 'GONE',
-      unitName: '已刪',
-      weekdays: '星期一',
-      startTime: '08:00',
-      endTime: '09:00',
-      hours: 1,
-      hourlyWage: 100,
-      note: ''
-    }
-  ];
-  const plan = planBatchHourCopy({
-    sourceIds: ['HX'],
-    targetAcademicYear: '115',
-    hourSettings: rows,
-    units,
-    budgets
-  });
-  assert.equal(plan.counters.invalidUnitSkipped, 1);
-  assert.equal(plan.counters.added, 0);
-  assert.match(plan.skipped[0].reason, /單位不存在/);
+test('planner never copies a source outside the selected source budget', () => {
+  const result = plan({ sourceIds: ['H3'] });
+  assert.equal(result.counters.sourceScopeSkipped, 1);
+  assert.equal(result.toAdd.length, 0);
 });
 
-test('out_of_target_budget_scope_skipped', () => {
-  // 115 budgets do not include U_A2
-  const rows = [
-    {
-      id: 'HA2',
-      academicYear: '114',
-      scheduleType: '開學期間',
-      unitCode: 'U_A2',
-      unitName: '公博典藏',
-      weekdays: '星期一',
-      startTime: '08:00',
-      endTime: '12:00',
-      hours: 4,
-      hourlyWage: 196,
-      note: ''
-    }
-  ];
-  const unitsWithA2 = [...units, { unitCode: 'U_A2', unitName: 'Unit_A2' }];
-  const plan = planBatchHourCopy({
-    sourceIds: ['HA2'],
-    targetAcademicYear: '115',
-    hourSettings: rows,
-    units: unitsWithA2,
-    budgets
-  });
-  assert.equal(plan.counters.outOfBudgetScopeSkipped, 1);
-  assert.equal(plan.counters.added, 0);
-  assert.match(plan.skipped[0].reason, /預算群組未包含/);
+test('same-year multiple target mappings are blocked explicitly', () => {
+  const anomalous = [...budgets, { id: 'B115D', academicYear: '115', budgetName: '重複範圍', unitCodes: ['U_A1'], budgetAmount: 1 }];
+  const result = plan({ sourceIds: ['H1'], budgets: anomalous });
+  assert.equal(result.counters.targetScopeAnomalySkipped, 1);
+  assert.equal(result.skipped[0].reason, '目標年度預算單位範圍異常');
 });
 
-test('missing source skipped', () => {
-  const plan = planBatchHourCopy({
-    sourceIds: ['NOPE'],
-    targetAcademicYear: '115',
-    hourSettings: sampleRows,
-    units,
-    budgets
-  });
-  assert.equal(plan.counters.missingSourceSkipped, 1);
-  assert.equal(plan.counters.added, 0);
+test('duplicate key and target duplicate protection are preserved', () => {
+  const duplicate = { ...rows[0], id: 'H115', academicYear: '115', unitName: 'A1 latest' };
+  const result = plan({ sourceIds: ['H1'], hourSettings: [...rows, duplicate] });
+  assert.equal(result.counters.duplicateSkipped, 1);
+  assert.equal(result.toAdd.length, 0);
+  assert.equal(buildHourSettingDuplicateKey({ ...duplicate, note: 'changed', hours: 99 }), buildHourSettingDuplicateKey(duplicate));
 });
 
-test('partial_success_summary counters', () => {
-  const rows = [
-    ...sampleRows,
-    {
-      id: 'HGONE',
-      academicYear: '114',
-      scheduleType: 'X',
-      unitCode: 'GONE',
-      unitName: 'gone',
-      weekdays: '星期一',
-      startTime: '01:00',
-      endTime: '02:00',
-      hours: 1,
-      hourlyWage: 1,
-      note: ''
-    }
-  ];
-  const plan = planBatchHourCopy({
-    sourceIds: ['H1', 'HGONE', 'H2'],
-    targetAcademicYear: '115',
-    hourSettings: rows,
-    units,
-    budgets
-  });
-  assert.equal(plan.counters.selected, 3);
-  assert.equal(plan.counters.added, 2);
-  assert.equal(plan.counters.invalidUnitSkipped, 1);
+test('payload preserves fields, uses current unit name, and adds no budget field', () => {
+  const result = plan({ sourceIds: ['H1'] });
+  const payload = result.toAdd[0].payload;
+  assert.equal(payload.academicYear, '115');
+  assert.equal(payload.unitName, 'A1 latest');
+  assert.equal(payload.note, 'one');
+  ['budgetName', 'budgetUnit', 'budgetGroup'].forEach(key => assert.equal(Object.hasOwn(payload, key), false));
 });
 
-test('same year all duplicate yields zero added', () => {
-  const plan = planBatchHourCopy({
-    sourceIds: ['H1', 'H2', 'H3', 'H4'],
-    targetAcademicYear: '114',
-    hourSettings: sampleRows,
-    units,
-    budgets
-  });
-  assert.equal(plan.counters.added, 0);
-  assert.equal(plan.counters.duplicateSkipped, 4);
-});
-
-test('valid budget scope uses only named non-empty unit groups', () => {
-  const set = getValidBudgetUnitCodesForYear(budgets, '115');
-  assert.equal(set.has('U_A1'), true);
-  assert.equal(set.has('U_B1'), true);
-  assert.equal(set.has('U_C1'), true);
-  assert.equal(set.has('U_X'), false);
-  assert.equal(isUnitInTargetBudgetScope(budgets, '115', 'U_A2'), false);
-});
-
-test('note field retained including html-looking text', () => {
-  const rows = [{
-    id: 'HN',
-    academicYear: '114',
-    scheduleType: 'A',
-    unitCode: 'U_A1',
-    unitName: 'old',
-    weekdays: '星期一',
-    startTime: '08:00',
-    endTime: '09:00',
-    hours: 1,
-    hourlyWage: 100,
-    note: '備註測試<script>x</script>'
-  }];
-  const plan = planBatchHourCopy({
-    sourceIds: ['HN'],
-    targetAcademicYear: '115',
-    hourSettings: rows,
-    units,
-    budgets
-  });
-  assert.equal(plan.toAdd[0].payload.note, '備註測試<script>x</script>');
+test('planner does not mutate source rows', () => {
+  const before = structuredClone(rows);
+  plan({ sourceIds: ['H1'] });
+  assert.deepEqual(rows, before);
 });

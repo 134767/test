@@ -72,6 +72,24 @@ export function findBudgetsByYearAndUnit(budgets = [], academicYear = '', unitCo
   return { status: 'multiple', budgets: matches };
 }
 
+/** Safe display model for the derived hour-setting budget unit column. */
+export function deriveHourBudgetUnit(budgets = [], academicYear = '', unitCode = '') {
+  const resolved = findBudgetsByYearAndUnit(budgets, academicYear, unitCode);
+  if (resolved.status === 'unique') {
+    return {
+      ...resolved,
+      budget: resolved.budgets[0],
+      budgetName: resolved.budgets[0].budgetName,
+      label: resolved.budgets[0].budgetName,
+      warning: false
+    };
+  }
+  if (resolved.status === 'multiple') {
+    return { ...resolved, budget: null, budgetName: '', label: '預算單位異常', warning: true };
+  }
+  return { ...resolved, budget: null, budgetName: '', label: '未對應預算單位', warning: true };
+}
+
 export function budgetOptionValue(budget) {
   const b = normalizeBudgetRecord(budget || {});
   if (b.id) return b.id;
