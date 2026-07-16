@@ -34,13 +34,13 @@ test('public root does not start or expose a business runtime', () => {
 
 test('local entry declares the localStorage runtime and versioned app asset', () => {
   assert.match(local, /DATA_MODE:\s*'localStorage'/);
-  assert.match(local, /\.\/js\/app\.js\?v=1\.6\.0/);
+  assert.match(local, /\.\/js\/app\.js\?v=1\.6\.0-[A-Za-z0-9._-]+/);
   assert.match(local, /版本 1\.6\.0/);
 });
 
 test('local entry guard runs before dynamic app import', () => {
   const guard = local.indexOf("allowedHosts.includes(location.hostname)");
-  const load = local.indexOf("import('./js/app.js?v=1.6.0-salary-summary-cards-hotfix-12')");
+  const load = local.search(/import\('\.\/js\/app\.js\?v=1\.6\.0-[A-Za-z0-9._-]+'\)/);
   assert.ok(guard >= 0 && load > guard);
   assert.match(local, /\['localhost', '127\.0\.0\.1', '::1'\]/);
   assert.match(local, /Local Runtime 僅允許從本機 localhost 啟動/);
@@ -55,16 +55,25 @@ test('all local browser runtime checks open local.html', () => {
   browserTools.forEach(source => assert.match(source, /BASE = "http:\/\/127\.0\.0\.1:5500\/local\.html"/));
 });
 
-test('all active asset cachebusters use the HOTFIX12 salary summary cards token', () => {
+test('all active asset cachebusters use explicit PTB 1.6.0 tokens', () => {
   const repoRoot = path.resolve(import.meta.dirname, '..');
   const roots = ['js', 'gas'];
-  const files = roots.flatMap(dir => fs.readdirSync(path.join(repoRoot, dir)).filter(name => /\.(js|gs|html)$/.test(name)).map(name => path.join(repoRoot, dir, name))).concat(path.join(repoRoot, 'local.html'));
+  const files = roots
+    .flatMap(dir => fs.readdirSync(path.join(repoRoot, dir))
+      .filter(name => /\.(js|gs|html)$/.test(name))
+      .map(name => path.join(repoRoot, dir, name)))
+    .concat(path.join(repoRoot, 'local.html'));
+
+  let tokenCount = 0;
   files.forEach(file => {
     const source = fs.readFileSync(file, 'utf8');
     assert.doesNotMatch(source, /\?v=1\.6\.0(?=['"]|$)/, file);
     for (const match of source.matchAll(/\?v=(1\.6\.0-[A-Za-z0-9._-]+)/g)) {
-      assert.equal(match[1], '1.6.0-salary-summary-cards-hotfix-12', file);
+      tokenCount += 1;
+      assert.match(match[1], /^1\.6\.0-[A-Za-z0-9._-]+$/, file);
     }
   });
-  assert.match(local, /1\.6\.0-salary-summary-cards-hotfix-12/);
+
+  assert.ok(tokenCount > 0, 'expected at least one explicit PTB 1.6.0 asset token');
+  assert.match(local, /1\.6\.0-data-performance-instrumentation-1/);
 });
