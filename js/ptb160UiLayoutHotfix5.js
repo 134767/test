@@ -1,6 +1,7 @@
 // PTB 1.6.0 hotfix-5：統一「預算單位」文案，並簡化行事曆查詢操作。
 
 let calendarGoogleViewsPromise = null;
+let calendarGoogleDayListPromise = null;
 
 function setFieldLabel(root, selector, text) {
   const field = root.querySelector(selector);
@@ -111,12 +112,19 @@ function requestCalendarGoogleViews(root) {
   calendarGoogleViewsPromise ||= import(
     './calendarGoogleViews.js?v=1.6.0-calendar-google-views-hotfix-1'
   );
+  calendarGoogleDayListPromise ||= import(
+    './calendarGoogleDayListView.js?v=1.6.0-calendar-google-views-hotfix-3'
+  );
 
   calendarGoogleViewsPromise
-    .then(module => module.installCalendarGoogleViews(root))
+    .then(module => {
+      module.installCalendarGoogleViews(root);
+      return calendarGoogleDayListPromise;
+    })
+    .then(module => module.installCalendarGoogleDayListView(root))
     .catch(error => {
       root.dataset.calendarGoogleViewsRequested = 'false';
-      console.error('[行事曆] 週／月／年檢視載入失敗', error);
+      console.error('[行事曆] 日／週／月／年檢視載入失敗', error);
     });
 }
 
