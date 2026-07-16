@@ -1,0 +1,220 @@
+/* PTB 1.6.0 calendar Google views hotfix-3：「日」模式單月條列檢視。 */
+
+.ptb-gcal-day-list-view {
+  min-height: 520px;
+  padding: 14px;
+  background: #f8fafd;
+}
+
+.ptb-gcal-day-list-month-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid #dadce0;
+  border-radius: 9px;
+  background: #fff;
+}
+
+.ptb-gcal-day-list-month-summary strong {
+  font-size: 18px;
+  color: #202124;
+}
+
+.ptb-gcal-day-list-month-summary span {
+  color: #5f6368;
+  font-size: 13px;
+}
+
+.ptb-gcal-day-list {
+  display: grid;
+  gap: 12px;
+}
+
+.ptb-gcal-day-list-section {
+  overflow: hidden;
+  border: 1px solid #dadce0;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.ptb-gcal-day-list-section.holiday {
+  border-color: #f0b8b3;
+}
+
+.ptb-gcal-day-list-date {
+  display: grid;
+  grid-template-columns: 56px minmax(180px, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #dadce0;
+  background: #f8fafd;
+}
+
+.ptb-gcal-day-list-section.holiday .ptb-gcal-day-list-date {
+  background: #fff4f3;
+}
+
+.ptb-gcal-day-list-date-badge {
+  width: 48px;
+  height: 54px;
+  display: grid;
+  grid-template-rows: 19px 1fr;
+  overflow: hidden;
+  border: 1px solid #dadce0;
+  border-radius: 7px;
+  text-align: center;
+  background: #fff;
+}
+
+.ptb-gcal-day-list-date-badge span {
+  display: grid;
+  place-items: center;
+  background: #1a73e8;
+  color: #fff;
+  font-size: 10px;
+}
+
+.ptb-gcal-day-list-date-badge strong {
+  display: grid;
+  place-items: center;
+  font-size: 23px;
+  color: #3c4043;
+}
+
+.ptb-gcal-day-list-date-title {
+  min-width: 0;
+}
+
+.ptb-gcal-day-list-date-title strong,
+.ptb-gcal-day-list-date-title span {
+  display: block;
+}
+
+.ptb-gcal-day-list-date-title strong {
+  font-size: 16px;
+}
+
+.ptb-gcal-day-list-date-title span,
+.ptb-gcal-day-list-date-summary {
+  color: #5f6368;
+  font-size: 12px;
+}
+
+.ptb-gcal-day-list-date-summary {
+  white-space: nowrap;
+}
+
+.ptb-gcal-day-list-rows {
+  padding: 0 14px;
+}
+
+.ptb-gcal-day-list-row {
+  display: grid;
+  grid-template-columns: 92px 12px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 12px 0;
+  border-bottom: 1px solid #eceff1;
+}
+
+.ptb-gcal-day-list-row:last-child {
+  border-bottom: 0;
+}
+
+.ptb-gcal-day-list-time {
+  color: #3c4043;
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.ptb-gcal-day-list-time span {
+  display: block;
+}
+
+.ptb-gcal-day-list-row > i {
+  width: 11px;
+  height: 11px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: #1a73e8;
+}
+
+.ptb-gcal-day-list-row.holiday-row > i {
+  background: #d93025;
+}
+
+.ptb-gcal-day-list-main {
+  min-width: 0;
+}
+
+.ptb-gcal-day-list-main > strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 15px;
+}
+
+.ptb-gcal-day-list-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: #5f6368;
+  font-size: 12px;
+}
+
+.ptb-gcal-day-list-main p {
+  margin: 6px 0 0;
+  color: #3c4043;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ptb-gcal-day-list-row.empty-row,
+.ptb-gcal-day-list-empty {
+  display: block;
+  padding: 26px 16px;
+  color: #5f6368;
+  text-align: center;
+}
+
+.ptb-gcal-day-list-empty {
+  border: 1px dashed #bdc1c6;
+  border-radius: 9px;
+  background: #fff;
+}
+
+@media (max-width: 720px) {
+  .ptb-gcal-day-list-view {
+    padding: 8px;
+  }
+
+  .ptb-gcal-day-list-month-summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .ptb-gcal-day-list-date {
+    grid-template-columns: 50px minmax(0, 1fr);
+    gap: 9px;
+    padding: 9px;
+  }
+
+  .ptb-gcal-day-list-date-summary {
+    grid-column: 2;
+    white-space: normal;
+  }
+
+  .ptb-gcal-day-list-rows {
+    padding: 0 9px;
+  }
+
+  .ptb-gcal-day-list-row {
+    grid-template-columns: 66px 10px minmax(0, 1fr);
+    gap: 8px;
+  }
+}

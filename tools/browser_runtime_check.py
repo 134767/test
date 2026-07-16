@@ -57,10 +57,10 @@ def main():
         OUT["checks"]["hour_note_escaped"] = "<script>" not in page.locator("#hour-tbody").inner_html() and "備註測試" in hour_body
 
         # Search note
-        page.fill("#hour-search", "NOTE_")
+        page.fill("#hour-filter-keyword", "NOTE_")
         page.wait_for_timeout(300)
         # trigger input event if needed
-        page.dispatch_event("#hour-search", "input")
+        page.click("#hour-filter-query")
         page.wait_for_timeout(400)
         filtered_count = page.locator("#hour-tbody tr").count()
         OUT["checks"]["hour_note_search_rows"] = filtered_count

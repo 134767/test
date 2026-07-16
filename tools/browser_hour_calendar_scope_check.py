@@ -164,30 +164,16 @@ def main():
         real = next(o for o in bg_opts if o["v"])
         page.select_option("#hour-budget-group", value=real["v"])
         page.wait_for_timeout(350)
-        # 實際單位可能被 1.5.6 增強為按鈕列（#hour-unit 隱藏）
-        unit_btns = page.locator("#hour-unit-buttons-v2 .weekday-btn")
+        # 正式架構直接使用可見按鈕，不建立相容性 select。
+        unit_btns = page.locator("#hour-unit .hour-choice-btn")
         unit_btn_count = unit_btns.count()
-        unit_opts = page.eval_on_selector_all(
-            "#hour-unit option", "els => els.map(e => e.value).filter(Boolean)"
-        )
-        OUT["checks"]["hour_actual_units_filtered"] = unit_btn_count > 0 or len(unit_opts) > 0
-        if unit_btn_count > 0:
-            unit_btns.first.click()
-        elif unit_opts:
-            page.locator("#hour-unit").evaluate(
-                "(el, v) => { el.value = v; el.dispatchEvent(new Event('change', {bubbles:true})); }",
-                unit_opts[0],
-            )
-        # 作息類型可能是按鈕
-        st_btns = page.locator("#hour-schedule-type-buttons-v2 .weekday-btn")
-        if st_btns.count() > 0:
-            st_btns.first.click()
-        else:
-            page.select_option("#hour-scheduleType", index=1)
+        OUT["checks"]["hour_actual_units_filtered"] = unit_btn_count > 0
+        unit_btns.first.click()
+        st_btns = page.locator("#hour-scheduleType .hour-choice-btn")
+        st_btns.first.click()
         # weekdays
         page.locator("#hour-weekdays .weekday-btn").first.click()
         page.fill("#hour-hours", "1")
-        page.fill("#hour-wage", "196")
         page.fill("#hour-note", "scope-new-test")
         page.click("#hour-save-btn")
         page.wait_for_timeout(700)
@@ -199,19 +185,19 @@ def main():
         OUT["checks"]["hour_new_saved"] = has_new
 
         # edit flow: open first edit that has unique match
-        page.locator("#hour-tbody .btn-edit").first.click()
+        page.locator("#hour-tbody tr", has_text="Group_Alpha").first.locator(".btn-edit").click()
         page.wait_for_timeout(500)
         bg_val = page.locator("#hour-budget-group").input_value()
-        unit_val = page.locator("#hour-unit").input_value()
-        unit_active = page.locator("#hour-unit-buttons-v2 .weekday-btn.active").count()
+        unit_active = page.locator("#hour-unit .hour-choice-btn.active").count()
         OUT["checks"]["hour_edit_budget_prefilled"] = bool(bg_val)
-        OUT["checks"]["hour_edit_unit_prefilled"] = bool(unit_val) or unit_active > 0
+        OUT["checks"]["hour_edit_unit_prefilled"] = unit_active > 0
         page.click("#hour-cancel-btn")
         page.wait_for_timeout(200)
 
-        # batch regression: button disabled then enable
-        OUT["checks"]["batch_btn_disabled"] = page.locator("#btn-batch-add-hour").is_disabled()
-        page.locator("#hour-tbody .row-check").first.check()
+        # batch regression: direct scope mode stays available without selection
+        OUT["checks"]["batch_btn_disabled"] = not page.locator("#btn-batch-add-hour").is_disabled()
+        # Select a row whose academicYear + unitCode resolves to exactly one budget.
+        page.locator("#hour-tbody tr", has_text="Group_Alpha").first.locator(".row-check").check()
         page.wait_for_timeout(100)
         OUT["checks"]["batch_btn_enabled"] = not page.locator("#btn-batch-add-hour").is_disabled()
         page.click("#btn-batch-add-hour")

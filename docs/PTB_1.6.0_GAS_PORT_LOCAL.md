@@ -16,13 +16,13 @@
 
 ## Script Properties 與秘密
 
-必要：`PTB_SPREADSHEET_ID`（測試 Sheet 複本 ID）、`PTB_GITHUB_PAGES_BASE_URL=https://134767.github.io/test`、`PTB_APP_VERSION=1.6.0`、`PTB_STATIC_ASSET_VERSION=1.6.0`、`PTB_WRITE_MODE=enabled`。值須由使用者在正確的 Apps Script 專案 UI 設定，不得提交 Spreadsheet ID、deployment URL、token、API key、帳密、cookie 或 email 白名單。目前 `/exec` 的 asset-base 錯誤必須由正確專案的 Script Property 修正，不可硬編碼掩蓋。
+必要：`PTB_SPREADSHEET_ID`（匿名測試 Sheet 複本 ID）、`PTB_GITHUB_PAGES_BASE_URL`、`PTB_APP_VERSION=1.6.0`、`PTB_STATIC_ASSET_VERSION=1.6.0-salary-summary-cards-hotfix-12`、`PTB_WRITE_MODE=enabled`。值須由使用者在正確的 Apps Script 專案 UI 設定，不得提交 Spreadsheet ID、deployment URL、token、API key、帳密、cookie 或 email 白名單。目前 `/exec` 的 asset-base 錯誤必須由正確專案的 Script Property 修正，不可硬編碼掩蓋。
 
 ## Sheet schema
 
 - `01_budgets`: id, academicYear, budgetAmount, note, createdAt, updatedAt, budgetName, unitCodes
 - `02_units`: id, unitCode, unitName, colorKey, note, createdAt, updatedAt
-- `03_hour_settings`: id, academicYear, scheduleType, unitCode, unitName, weekdays, startTime, endTime, hours, hourlyWage, note, createdAt, updatedAt
+- `03_hour_settings`: id, academicYear, scheduleType, unitCode, unitName, weekdays, startTime, endTime, hours, note, createdAt, updatedAt
 - `04_calendar_periods`: id, date, weekday, createdAt
 - `05_calendar_rows`: id, date, academicYear, weekday, scheduleType, unitCode, unitName, startTime, endTime, hours, hourlyWage, sourceHourSettingId, createdAt
 - `06_calendar_holidays`: id, date, name, type, note, createdAt, updatedAt

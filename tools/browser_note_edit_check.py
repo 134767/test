@@ -54,19 +54,13 @@ with sync_playwright() as p:
 
     page.click("text=時數設定")
     page.wait_for_timeout(400)
-    page.fill("#hour-search", "")
-    page.dispatch_event("#hour-search", "input")
+    page.fill("#hour-filter-keyword", "")
+    page.click("#hour-filter-query")
     page.wait_for_timeout(300)
-    page.locator("#hour-tbody .btn-edit").first.click()
+    page.locator("#hour-tbody tr", has_text="Group_Alpha").first.locator(".btn-edit").click()
     page.wait_for_timeout(300)
     page.fill("#hour-note", "EDITED_NOTE_RUNTIME_XYZ")
-    # save button
-    save = page.locator("#hour-modal button")
-    for i in range(save.count()):
-        t = save.nth(i).inner_text()
-        if any(x in t for x in ("儲存", "確定", "保存", "送出")):
-            save.nth(i).click()
-            break
+    page.click("#hour-save-btn")
     page.wait_for_timeout(700)
     table_txt = page.locator("#hour-tbody").inner_text()
     out["hour_edit_refresh"] = "EDITED_NOTE_RUNTIME_XYZ" in table_txt

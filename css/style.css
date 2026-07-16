@@ -220,6 +220,7 @@ button {
 .table-wrapper {
   overflow-x: auto;
   max-width: 100%;
+  min-width: 0;
 }
 
 .data-table {
@@ -305,6 +306,62 @@ button {
 
 .forecast-modal-wide {
   max-width: min(1000px, 96vw);
+}
+
+.forecast-modal-wide .modal-footer,
+#interval-modal .modal-footer {
+  flex-wrap: wrap;
+}
+
+.ptb-subpage-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.ptb-subpage-btn {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel-soft);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.ptb-subpage-btn.active {
+  color: #fff;
+  border-color: var(--primary);
+  background: var(--primary);
+}
+
+.forecast-evaluation-summary,
+.interval-operation-result {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel-soft);
+}
+
+.interval-choice-heading,
+.interval-preview-heading,
+.forecast-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.btn-compact {
+  min-height: 28px;
+  padding: 3px 8px;
+  font-size: 13px;
+}
+
+.error-text {
+  color: var(--danger);
 }
 
 .modal-header {
@@ -488,6 +545,34 @@ button {
   border-color: var(--primary);
 }
 
+.hour-choice-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-soft);
+}
+
+.hour-choice-btn {
+  border-radius: 4px;
+}
+
+.hour-choice-btn:hover:not(:disabled),
+.hour-choice-btn:focus-visible {
+  border-color: var(--primary);
+  outline: 2px solid color-mix(in srgb, var(--primary) 25%, transparent);
+  outline-offset: 1px;
+}
+
+.hour-choice-empty {
+  align-self: center;
+  color: #777;
+  font-size: 13px;
+}
+
 .preview-box {
   background: var(--panel-soft);
   border: 1px solid var(--border);
@@ -658,7 +743,9 @@ footer {
 .query-field select,
 .query-field input[type="month"],
 .query-field input[type="text"],
-.query-field input[type="number"] {
+.query-field input[type="search"],
+.query-field input[type="number"],
+#hour-batch-source-budget-search {
   min-height: 32px;
   padding: 5px 8px;
   font-size: 13px;
@@ -668,6 +755,25 @@ footer {
   color: var(--text);
   width: 100%;
   box-sizing: border-box;
+}
+
+.query-field input[type="search"],
+#hour-batch-source-budget-search {
+  font-family: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.query-field input[type="text"]:focus,
+.query-field input[type="search"]:focus,
+#hour-batch-source-budget-search:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(31, 110, 212, 0.12);
+}
+
+#hour-batch-source-budget-search {
+  margin-bottom: 6px;
 }
 
 .query-actions {
@@ -767,8 +873,11 @@ footer {
 /* 真正 transpose 版：月份作為欄位，左側項目/指標，單位每4列 */
 /* 專為寬表格設計：左側兩欄 sticky 凍結 */
 .salary-month-transpose-table {
-  --month-detail-col1-width: 140px; /* 項目 */
-  --month-detail-col2-width: 128px; /* 指標 */
+  --month-detail-col1-width: 140px; /* 單位 */
+  --month-detail-col2-width: 128px; /* 項目 */
+  width: max-content;
+  min-width: 100%;
+  table-layout: auto;
 }
 
 .salary-month-transpose-table th,
@@ -789,11 +898,16 @@ footer {
 .salary-month-transpose-table th:nth-child(n+3) {
   text-align: right;
   font-variant-numeric: tabular-nums;
+  min-width: 92px;
+}
+
+.hour-filter-keyword-field {
+  flex: 2 1 260px;
 }
 
 .salary-month-transpose-table .note-cell {
   text-align: left;
-  min-width: 80px;
+  min-width: 110px;
 }
 
 /* ===== 左側兩欄 sticky 凍結（僅限此表格） ===== */
@@ -885,9 +999,16 @@ footer {
   text-align: left !important;
   padding-left: 6px;
   border-left: 4px solid #7f8da8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .salary-month-transpose-table td.month-detail-unit-name span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-weight: 700;
 }
 
@@ -1172,6 +1293,15 @@ footer {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 6px;
+  min-width: 0;
+}
+
+/* 讓寬表格留在自身的捲動容器內，避免窄螢幕撐寬整頁。 */
+#page-differenceForecast,
+#page-differenceForecast .forecast-grid,
+#page-differenceForecast .table-wrapper {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .comparison-card h3 {
@@ -1261,12 +1391,59 @@ button {
   min-width: 160px;
 }
 
+.hour-batch-budget-group {
+  min-width: 240px;
+}
+
+.hour-batch-budget-group input,
+.hour-batch-budget-group select {
+  width: 100%;
+}
+
+.hour-batch-budget-group input {
+  margin-bottom: 6px;
+}
+
+.hour-batch-plan-summary {
+  margin: 6px 0 10px;
+  color: #334155;
+  font-size: 14px;
+}
+
+.hour-budget-unit-warning {
+  color: #b42318;
+  background: #fff1f0;
+  font-weight: 600;
+}
+
+.budget-duplicate-warning {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid #f0a5a0;
+  border-radius: 6px;
+  color: #8a1c13;
+  background: #fff1f0;
+  font-weight: 600;
+}
+
+.budget-duplicate-row td {
+  background: #fff8f7;
+}
+
+.budget-duplicate-label {
+  margin-top: 3px;
+  color: #b42318;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 @media (max-width: 768px) {
   .hour-batch-meta-row {
     flex-direction: column;
   }
   .hour-batch-year-group,
-  .hour-batch-year-group select {
+  .hour-batch-year-group select,
+  .hour-batch-budget-group {
     width: 100%;
   }
   .hour-batch-preview-wrap {
@@ -1422,10 +1599,131 @@ body.db-is-busy button[data-db-locked-by-feedback="true"] {
 .summary-total-row { font-weight: 700; border-top: 2px solid #495057; }
 .selected-budget-row { background: #fff8e1; font-weight: 600; }
 .negative { color: #dc3545 !important; }
+.salary-summary-box {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.salary-summary-query-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin-bottom: 10px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.salary-summary-query-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.salary-summary-query-label {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.salary-summary-query-value {
+  color: var(--text);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.salary-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.salary-summary-item {
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--panel-soft);
+}
+
+.salary-summary-label {
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.salary-summary-value {
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.salary-summary-item--primary {
+  border-left: 4px solid var(--primary);
+}
+
+.salary-summary-item--positive {
+  border-left: 4px solid #198754;
+}
+
+.salary-summary-item--positive .salary-summary-value {
+  color: #198754;
+}
+
+.salary-summary-item--negative {
+  border-left: 4px solid var(--danger);
+}
+
+.salary-summary-item--negative .salary-summary-value {
+  color: var(--danger);
+}
+
 .salary-query-panel .query-row { flex-wrap: wrap; }
+@media (max-width: 1000px) {
+  .salary-summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .salary-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 440px) {
+  .salary-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .salary-summary-value {
+    font-size: 17px;
+  }
+}
+
 @media (max-width: 640px) {
   .salary-query-panel .query-field,
   .salary-query-panel .query-actions { width: 100%; min-width: 0; }
   .salary-query-panel select,
   .salary-query-panel input { width: 100%; }
+}
+.calendar-wage-warning {
+  color: #dc3545;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  margin-top: 6px;
+}
+
+.calendar-wage-preview {
+  color: #b42318;
+  font-weight: 700;
+  margin-bottom: 8px;
 }

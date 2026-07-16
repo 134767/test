@@ -1,12 +1,7 @@
-// 工讀金 1.5.6：時數設定單位複選 + 假日設定雙頁/日期區間
-// 以獨立增強模組接入 1.6.0 頁面，避免改寫既有大型頁面模組。
+// 工讀金 1.5.6：Calendar 假日設定雙頁/日期區間正式增強模組。
 
 import {
   getDataMode,
-  getUnits,
-  getHourSettings,
-  saveHourSetting,
-  getBudgets,
   getCalendarHolidays,
   saveCalendarHoliday,
   deleteCalendarHoliday,
@@ -15,48 +10,38 @@ import {
   deleteHolidayName,
   isHolidayNameUsed,
   ensureHolidayNamesFromExistingCalendarHolidays
-} from './dataStore.js?v=1.6.0';
-import { renderHourTable } from './hourSettingPage.js?v=1.6.0';
-import { renderCalendarTable } from './calendarPage.js?v=1.6.0';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0';
-import {
-  showToast,
-  arrayToWeekdays,
-  getDatesInRange,
-  formatDateForDisplay
-} from './utils.js?v=1.6.0';
-import { findBudgetByOptionValue } from './hourBudgetScopeUtils.js?v=1.6.0';
+} from './dataStore.js?v=1.6.0-salary-summary-cards-hotfix-12';
+import { renderCalendarTable } from './calendarPage.js?v=1.6.0-salary-summary-cards-hotfix-12';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-salary-summary-cards-hotfix-12';
+import { showToast, getDatesInRange, formatDateForDisplay } from './utils.js?v=1.6.0-salary-summary-cards-hotfix-12';
 
-let hourEditingId = null;
-let selectedHourUnitCodes = new Set();
 let holidayPage = 'settings';
 let holidayRecordPage = 1;
 let holidayNamePage = 1;
 const HOLIDAY_PAGE_SIZE = 20;
+let holidayEnhancementObserver = null;
+let holidayObservedMain = null;
 
 export function installPtb156Enhancements() {
   injectEnhancementStyles();
-
   const main = document.getElementById('main-content');
   if (!main) return;
-
-  const scan = () => {
-    enhanceHourSettingPage(main.querySelector('#page-hour'));
-    enhanceCalendarPage(main.querySelector('#page-calendar'));
-  };
-
-  new MutationObserver(scan).observe(main, { childList: true, subtree: true });
+  const scan = () => enhanceCalendarPage(main.querySelector('#page-calendar'));
+  if (holidayEnhancementObserver && holidayObservedMain === main) {
+    scan();
+    return;
+  }
+  holidayEnhancementObserver?.disconnect();
+  holidayEnhancementObserver = new MutationObserver(scan);
+  holidayObservedMain = main;
+  holidayEnhancementObserver.observe(main, { childList: true, subtree: true });
   scan();
 }
-
 function injectEnhancementStyles() {
   if (document.getElementById('ptb-156-enhancement-styles')) return;
-
   const style = document.createElement('style');
   style.id = 'ptb-156-enhancement-styles';
   style.textContent = `
-    .ptb-hidden-source { display: none !important; }
-    .ptb-selection-help { color:#666; font-size:13px; margin-top:6px; line-height:1.4; }
     .ptb-subpage-tabs { display:flex; gap:8px; margin-bottom:16px; border-bottom:1px solid #e5e7eb; padding-bottom:10px; }
     .ptb-subpage-btn { border:1px solid #cbd5e1; background:#fff; border-radius:8px; padding:8px 14px; cursor:pointer; font-weight:600; }
     .ptb-subpage-btn.active { background:#2563eb; border-color:#2563eb; color:#fff; }
@@ -73,7 +58,6 @@ function injectEnhancementStyles() {
     .ptb-page-controls { display:flex; align-items:center; justify-content:center; gap:10px; margin-top:10px; }
     .ptb-page-controls button { padding:5px 10px; }
     .ptb-page-controls button:disabled { opacity:.45; cursor:not-allowed; }
-    #hour-unit-buttons-v2 { align-items:flex-start; }
     #holiday-modal-v2 .modal-content { width:min(680px, calc(100vw - 24px)); }
     @media (max-width:640px) {
       .ptb-holiday-range { grid-template-columns:1fr; }
@@ -82,266 +66,6 @@ function injectEnhancementStyles() {
   `;
   document.head.appendChild(style);
 }
-
-function enhanceHourSettingPage(root) {
-  if (!root || root.dataset.ptb156HourEnhanced === 'true') return;
-
-  const modal = root.querySelector('#hour-modal');
-  const unitSelect = root.querySelector('#hour-unit');
-  const saveButton = root.querySelector('#hour-save-btn');
-  if (!modal || !unitSelect || !saveButton) return;
-
-  root.dataset.ptb156HourEnhanced = 'true';
-  unitSelect.classList.add('ptb-hidden-source');
-  unitSelect.setAttribute('aria-hidden', 'true');
-
-  const unitButtons = document.createElement('div');
-  unitButtons.id = 'hour-unit-buttons-v2';
-  unitButtons.className = 'weekday-buttons';
-  unitSelect.insertAdjacentElement('afterend', unitButtons);
-
-  const help = document.createElement('div');
-  help.id = 'hour-unit-help-v2';
-  help.className = 'ptb-selection-help';
-  help.textContent = '新增時數時可複選單位，系統會依單位各建立一筆時數設定；編輯既有資料時維持單一單位。';
-  unitButtons.insertAdjacentElement('afterend', help);
-
-  const replacementSave = saveButton.cloneNode(true);
-  saveButton.replaceWith(replacementSave);
-  replacementSave.addEventListener('click', () => handleEnhancedHourSave(root));
-
-  const addButton = root.querySelector('#btn-add-hour');
-  if (addButton) {
-    addButton.addEventListener('click', () => {
-      hourEditingId = null;
-      selectedHourUnitCodes.clear();
-      setTimeout(() => renderHourUnitButtons(root), 0);
-    });
-  }
-
-  root.addEventListener('click', event => {
-    const editButton = event.target.closest('.btn-edit[data-id]');
-    if (!editButton || !root.contains(editButton)) return;
-
-    hourEditingId = editButton.dataset.id || null;
-    const item = getHourSettings().find(row => row.id === hourEditingId);
-    selectedHourUnitCodes = new Set(item && item.unitCode ? [item.unitCode] : []);
-    setTimeout(() => renderHourUnitButtons(root), 0);
-  });
-
-  const academicYear = root.querySelector('#hour-academicYear');
-  if (academicYear) {
-    academicYear.addEventListener('change', () => {
-      selectedHourUnitCodes.clear();
-      setTimeout(() => renderHourUnitButtons(root), 0);
-    });
-  }
-  const budgetGroup = root.querySelector('#hour-budget-group');
-  if (budgetGroup) {
-    budgetGroup.addEventListener('change', () => {
-      selectedHourUnitCodes.clear();
-      setTimeout(() => renderHourUnitButtons(root), 0);
-    });
-  }
-
-  const cancelButton = root.querySelector('#hour-cancel-btn');
-  if (cancelButton) {
-    cancelButton.addEventListener('click', () => {
-      hourEditingId = null;
-      selectedHourUnitCodes.clear();
-    });
-  }
-}
-
-function getSelectedBudgetForHourForm(root) {
-  const ay = valueOf(root, '#hour-academicYear');
-  const budgetVal = valueOf(root, '#hour-budget-group');
-  if (!ay || !budgetVal) return null;
-  return findBudgetByOptionValue(getBudgets(), budgetVal, ay);
-}
-
-function renderHourUnitButtons(root) {
-  const wrap = root.querySelector('#hour-unit-buttons-v2');
-  const hiddenSelect = root.querySelector('#hour-unit');
-  if (!wrap) return;
-
-  if (hourEditingId && selectedHourUnitCodes.size === 0 && hiddenSelect && hiddenSelect.value) {
-    selectedHourUnitCodes.add(hiddenSelect.value);
-  }
-
-  const budget = getSelectedBudgetForHourForm(root);
-  wrap.innerHTML = '';
-  if (!budget) {
-    wrap.innerHTML = '<span style="color:#666;font-size:14px;">請先選擇單位（預算群組）</span>';
-    selectedHourUnitCodes.clear();
-    if (hiddenSelect) hiddenSelect.value = '';
-    return;
-  }
-
-  const allowedOrder = (budget.unitCodes || []).slice();
-  const allowedSet = new Set(allowedOrder);
-  const master = getUnits();
-  const masterMap = new Map(master.map(unit => [unit.unitCode, unit]));
-  const units = [];
-  const missing = [];
-  allowedOrder.forEach(code => {
-    const unit = masterMap.get(code);
-    if (unit) units.push(unit);
-    else missing.push(code);
-  });
-  if (missing.length) {
-    console.warn('[PTB 1.5.6/1.6.0] 預算群組 unitCodes 在單位設定中不存在：', missing);
-  }
-
-  selectedHourUnitCodes = new Set(
-    Array.from(selectedHourUnitCodes).filter(code => allowedSet.has(code) && masterMap.has(code))
-  );
-
-  if (units.length === 0) {
-    wrap.innerHTML = '<span style="color:#666;font-size:14px;">此預算單位沒有可用的實際單位</span>';
-    if (hiddenSelect) hiddenSelect.value = '';
-    return;
-  }
-
-  units.forEach(unit => {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'weekday-btn';
-    button.dataset.value = unit.unitCode;
-    button.textContent = `${unit.unitCode} - ${unit.unitName}`;
-    button.classList.toggle('active', selectedHourUnitCodes.has(unit.unitCode));
-
-    button.addEventListener('click', () => {
-      if (hourEditingId) {
-        selectedHourUnitCodes.clear();
-        selectedHourUnitCodes.add(unit.unitCode);
-      } else if (selectedHourUnitCodes.has(unit.unitCode)) {
-        selectedHourUnitCodes.delete(unit.unitCode);
-      } else {
-        selectedHourUnitCodes.add(unit.unitCode);
-      }
-
-      if (hiddenSelect) hiddenSelect.value = Array.from(selectedHourUnitCodes)[0] || '';
-      renderHourUnitButtons(root);
-    });
-
-    wrap.appendChild(button);
-  });
-
-  if (hiddenSelect) hiddenSelect.value = Array.from(selectedHourUnitCodes)[0] || '';
-}
-
-async function handleEnhancedHourSave(root) {
-  const academicYear = valueOf(root, '#hour-academicYear');
-  const scheduleType = valueOf(root, '#hour-scheduleType').trim();
-  const startTime = valueOf(root, '#hour-startTime');
-  const endTime = valueOf(root, '#hour-endTime');
-  const hoursRaw = valueOf(root, '#hour-hours');
-  const wageRaw = valueOf(root, '#hour-wage');
-  const note = valueOf(root, '#hour-note').trim();
-  const selectedDays = Array.from(root.querySelectorAll('#hour-weekdays .weekday-btn.active'))
-    .map(button => button.dataset.day);
-  const unitCodes = Array.from(selectedHourUnitCodes);
-  const budgetVal = valueOf(root, '#hour-budget-group');
-
-  if (!academicYear) {
-    showToast('請選擇學年度', 'error');
-    return;
-  }
-  if (!budgetVal) {
-    showToast('請選擇單位', 'error');
-    return;
-  }
-  if (!scheduleType || unitCodes.length === 0) {
-    showToast('學年度、作息類型、實際單位均為必填', 'error');
-    return;
-  }
-  if (hourEditingId && unitCodes.length !== 1) {
-    showToast('編輯既有時數設定時只能選擇一個實際單位', 'error');
-    return;
-  }
-  if (selectedDays.length === 0) {
-    showToast('至少選擇一個週期類型（星期）', 'error');
-    return;
-  }
-  if (!startTime || !endTime || startTime >= endTime) {
-    showToast('開始時間必須小於結束時間', 'error');
-    return;
-  }
-  if (!hoursRaw || Number.isNaN(Number(hoursRaw))) {
-    showToast('時數必須為數字', 'error');
-    return;
-  }
-  if (!wageRaw || Number.isNaN(Number(wageRaw))) {
-    showToast('時薪必須為數字', 'error');
-    return;
-  }
-
-  const selectedBudget = findBudgetByOptionValue(getBudgets(), budgetVal, academicYear);
-  if (!selectedBudget || String(selectedBudget.academicYear) !== String(academicYear)) {
-    showToast('選擇的單位不屬於目前學年度', 'error');
-    return;
-  }
-  const allowed = new Set(selectedBudget.unitCodes || []);
-  const outOfScope = unitCodes.find(code => !allowed.has(code));
-  if (outOfScope) {
-    showToast('實際單位不屬於所選預算單位', 'error');
-    return;
-  }
-
-  const weekdays = arrayToWeekdays(selectedDays);
-  const unitMap = new Map(getUnits().map(unit => [unit.unitCode, unit]));
-  const invalidCode = unitCodes.find(code => !unitMap.has(code));
-  if (invalidCode) {
-    showToast('實際單位已不存在於單位設定', 'error');
-    return;
-  }
-
-  const existing = getHourSettings();
-  const duplicates = unitCodes.filter(code => existing.some(item => {
-    if (hourEditingId && item.id === hourEditingId) return false;
-    return item.academicYear === academicYear &&
-      item.scheduleType === scheduleType &&
-      item.unitCode === code &&
-      item.weekdays === weekdays &&
-      item.startTime === startTime &&
-      item.endTime === endTime;
-  }));
-
-  if (duplicates.length > 0) {
-    const labels = duplicates.map(code => {
-      const unit = unitMap.get(code);
-      return unit ? unit.unitName : code;
-    });
-    showToast(`以下單位已有相同時數設定：${labels.join('、')}`, 'error');
-    return;
-  }
-
-  const writes = unitCodes.map((code, index) => {
-    const unit = unitMap.get(code);
-    return saveHourSetting({
-      id: hourEditingId && index === 0 ? hourEditingId : null,
-      academicYear,
-      scheduleType,
-      unitCode: code,
-      unitName: unit.unitName,
-      weekdays,
-      startTime,
-      endTime,
-      hours: Number(hoursRaw),
-      hourlyWage: Number(wageRaw),
-      note
-    });
-  });
-  try { await runWithMutationUiLock([root.querySelector('#hour-save-btn'),root.querySelector('#hour-cancel-btn')],()=>Promise.all(writes),{blocking:true}); } catch { return; }
-
-  const wasEditing = Boolean(hourEditingId);
-  const cancelButton = root.querySelector('#hour-cancel-btn');
-  if (cancelButton) cancelButton.click();
-  renderHourTable();
-  showToast(wasEditing ? '更新成功' : `新增成功（${unitCodes.length} 個單位）`);
-}
-
 function valueOf(root, selector) {
   const element = root.querySelector(selector);
   return element ? String(element.value || '') : '';
@@ -357,17 +81,20 @@ function enhanceCalendarPage(root) {
 
   const replacementButton = originalButton.cloneNode(true);
   originalButton.replaceWith(replacementButton);
-  replacementButton.addEventListener('click', () => openHolidayModalV2(root));
+  replacementButton.addEventListener('click', event => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    openHolidayModalV2(root);
+  });
 
-  const oldModal = root.querySelector('#holiday-modal');
-  if (oldModal) {
-    oldModal.style.display = 'none';
-    oldModal.setAttribute('aria-hidden', 'true');
-  }
+  root.querySelector('#holiday-modal')?.remove();
+  root.querySelector('#holiday-modal-v2')?.remove();
 
   const modal = document.createElement('div');
   modal.id = 'holiday-modal-v2';
   modal.className = 'modal';
+  modal.setAttribute('aria-hidden', 'true');
   modal.innerHTML = `
     <div class="modal-content">
       <div class="modal-header">
@@ -458,11 +185,16 @@ function openHolidayModalV2(root) {
   renderHolidayRecordListV2(root);
   renderHolidayNameListV2(root);
   modal.style.display = 'flex';
+  modal.setAttribute('aria-hidden', 'false');
 }
 
 function closeHolidayModalV2(root) {
   const modal = root.querySelector('#holiday-modal-v2');
-  if (modal) modal.style.display = 'none';
+  if (modal) {
+    modal.style.display = 'none';
+    modal.setAttribute('aria-hidden', 'true');
+  }
+  root.querySelector('#btn-holiday-setting')?.focus();
 }
 
 function setHolidayPage(root, page) {

@@ -56,14 +56,16 @@ let _cache = {
 let _dataMode = 'localStorage';
 let _gasReady = false;
 let _isInitializing = false;
-let _syncTimers = {};
-let _syncUiTokens = {};
-let _syncGenerations = {};
+export const COLLECTION_SYNC_DEBOUNCE_MS = 250;
+const _collectionStates = new Map();
+const _collectionSubscribers = new Set();
+let _reservationGate = Promise.resolve();
 const GAS_ACTIONS = new Set([
   'saveBudget','deleteBudget','saveUnit','deleteUnit','saveHourSetting','saveHourSettingsBatch','deleteHourSettings',
   'saveCalendarPeriod','deleteCalendarPeriods','saveCalendarRowsBatch','deleteCalendarRowsByScope',
   'saveCalendarHoliday','deleteCalendarHoliday','saveSalaryEntry','deleteSalaryEntry',
-  'saveForecastEvaluation','deleteForecastEvaluation','saveScheduleType','deleteScheduleType','saveHolidayName','deleteHolidayName'
+  'saveForecastEvaluation','deleteForecastEvaluation','saveScheduleType','deleteScheduleType','saveHolidayName','deleteHolidayName',
+  'replaceCollection','replaceCollectionsBatch'
 ]);
 
 function _emptyCache() {
@@ -83,6 +85,49 @@ function _emptyCache() {
 
 function _clone(value) {
   return JSON.parse(JSON.stringify(value || []));
+}
+
+function _assertCollection(name, replaceable = false) {
+  if (!COLLECTIONS.includes(name) || (replaceable && !WRITE_ENABLED_COLLECTIONS.has(name))) {
+    throw new Error(`不允許的 collection：${name}`);
+  }
+}
+
+function _stateFor(name) {
+  _assertCollection(name);
+  if (!_collectionStates.has(name)) {
+    _collectionStates.set(name, {
+      confirmedRows: _clone(_cache[name] || []), timer: null, inFlight: null, batchInFlight: null,
+      dirtyGeneration: 0, confirmedGeneration: 0, waiters: [], uiToken: null
+    });
+  }
+  return _collectionStates.get(name);
+}
+
+function _mutationId(name, generation) {
+  const random = globalThis.crypto?.randomUUID?.() || `${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+  return `${name}:${generation}:${random}`;
+}
+
+function _newId(prefix) {
+  const random = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+  return `${prefix}_${random}`;
+}
+
+function _emitCollectionChanged(name, phase, extra = {}) {
+  const event = { phase, collection: name, rows: _clone(_cache[name] || []), ...extra };
+  _collectionSubscribers.forEach(listener => {
+    try { listener(event); } catch (error) { console.error('[DataStore] collection subscriber failed', error); }
+  });
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+    window.dispatchEvent(new CustomEvent('workstudy:collection-changed', { detail: event }));
+  }
+}
+
+export function subscribeCollection(listener) {
+  if (typeof listener !== 'function') throw new TypeError('listener 必須是 function');
+  _collectionSubscribers.add(listener);
+  return () => _collectionSubscribers.delete(listener);
 }
 
 function _detectDataMode() {
@@ -111,9 +156,66 @@ function _isGasWriteEnabled() {
   return runtime.writeMode === 'enabled';
 }
 
-function _allowGasLocalFallback() {
-  const runtime = window.WORK_STUDY_RUNTIME_CONFIG || {};
-  return runtime.allowLocalFallback === true;
+function assertGasMutationAllowed() {
+  if (_dataMode === 'gasSheet' && !_isGasWriteEnabled()) {
+    const error = new Error('目前未開放寫入');
+    error.code = 'WRITE_DISABLED';
+    throw error;
+  }
+}
+
+function _deferred() {
+  let resolve;
+  const promise = new Promise(done => { resolve = done; });
+  return { promise, resolve };
+}
+
+async function _withReservationGate(callback) {
+  const previous = _reservationGate;
+  const next = _deferred();
+  _reservationGate = next.promise;
+  await previous;
+  try { return await callback(); } finally { next.resolve(); }
+}
+
+export async function reserveCollectionsForBatch(collectionNames) {
+  const names = [...new Set(collectionNames || [])].sort();
+  if (!names.length) throw new Error('batch collections 不可空白');
+  names.forEach(name => _assertCollection(name, true));
+  let token;
+  while (!token) {
+    let conflicts = [];
+    token = await _withReservationGate(() => {
+      conflicts = [...new Set(names.map(name => _stateFor(name).batchInFlight).filter(Boolean))];
+      if (conflicts.length) return null;
+      const done = _deferred();
+      const reservation = { names, done: done.promise, release: done.resolve };
+      names.forEach(name => { _stateFor(name).batchInFlight = reservation; });
+      return reservation;
+    });
+    if (!token) await Promise.all(conflicts.map(conflict => conflict.done));
+  }
+  try {
+    for (const name of names) {
+      const state = _stateFor(name);
+      clearTimeout(state.timer);
+      state.timer = null;
+      if (state.inFlight) await state.inFlight;
+      if (state.dirtyGeneration > state.confirmedGeneration) await flushCollectionSync(name);
+    }
+    return token;
+  } catch (error) {
+    releaseCollectionsFromBatch(names, token);
+    throw error;
+  }
+}
+
+export function releaseCollectionsFromBatch(collectionNames, token) {
+  [...new Set(collectionNames || [])].sort().forEach(name => {
+    const state = _stateFor(name);
+    if (state.batchInFlight === token) state.batchInFlight = null;
+  });
+  token?.release?.();
 }
 
 function _loadLocal(name) {
@@ -141,15 +243,28 @@ function _getCollection(name) {
   return _cache[name];
 }
 
-function _setCollection(name, data, options = {}) {
-  const sync = options.sync !== false;
-  _cache[name] = data;
-  if (_dataMode !== 'gasSheet') _saveLocal(name, data);
-
-  if (_dataMode === 'gasSheet' && _gasReady && !_isInitializing && sync && _isGasWriteEnabled()) {
-    console.warn(`[DataStore] ${name} must use an explicit GAS mutation API`);
+export function setCollection(name, data, options = {}) {
+  _assertCollection(name);
+  if (_dataMode === 'gasSheet' && options.sync !== false) {
+    assertGasMutationAllowed();
+    if (_stateFor(name).batchInFlight) {
+      const error = new Error(`${name} 正在執行 batch mutation`);
+      error.code = 'COLLECTION_BUSY';
+      throw error;
+    }
   }
+  if (!Array.isArray(data)) throw new TypeError(`${name} 必須是 array`);
+  const rows = _clone(data);
+  _cache[name] = rows;
+  if (_dataMode !== 'gasSheet') _saveLocal(name, rows);
+  _emitCollectionChanged(name, options.phase || 'replace', options.event || {});
+  if (_dataMode === 'gasSheet' && _gasReady && !_isInitializing && options.sync !== false) {
+    return scheduleCollectionSync(name, options);
+  }
+  return Promise.resolve(_clone(rows));
 }
+
+const _setCollection = setCollection;
 
 function _collectionLabel(name) {
   const labels = {
@@ -167,56 +282,147 @@ function _collectionLabel(name) {
   return labels[name] || name;
 }
 
-function _scheduleCollectionSync(name) {
-  if (!COLLECTIONS.includes(name)) return;
-
-  if (!WRITE_ENABLED_COLLECTIONS.has(name)) {
-    console.warn(`[GAS Sheet Sync] ${name} is not write-enabled in 1.6.0`);
-    return;
-  }
-
+export function scheduleCollectionSync(name, options = {}) {
+  _assertCollection(name, true);
+  if (_dataMode !== 'gasSheet') return Promise.resolve(_clone(_cache[name] || []));
+  try { assertGasMutationAllowed(); } catch (error) { return Promise.reject(error); }
+  const state = _stateFor(name);
+  state.dirtyGeneration += 1;
+  const generation = state.dirtyGeneration;
   const label = _collectionLabel(name);
-  _syncGenerations[name] = (_syncGenerations[name] || 0) + 1;
-  const generation = _syncGenerations[name];
-
-  if (!_syncUiTokens[name]) {
-    _syncUiTokens[name] = beginDbOperation(`${label} syncing to Google Sheet...`, { blocking: false });
-  } else if (window.WorkStudyDbFeedback) {
-    window.WorkStudyDbFeedback.update(_syncUiTokens[name], `${label} syncing to Google Sheet...`);
+  if (!state.uiToken && typeof document !== 'undefined' && document.body) state.uiToken = beginDbOperation(`${label}正在同步`, { blocking: false });
+  else if (state.uiToken) window.WorkStudyDbFeedback?.update?.(state.uiToken, `${label}正在同步`);
+  const promise = new Promise((resolve, reject) => state.waiters.push({ generation, resolve, reject }));
+  if (!state.inFlight) {
+    clearTimeout(state.timer);
+    state.timer = setTimeout(() => { flushCollectionSync(name).catch(() => {}); }, options.immediate ? 0 : COLLECTION_SYNC_DEBOUNCE_MS);
   }
+  return promise;
+}
 
-  clearTimeout(_syncTimers[name]);
-  _syncTimers[name] = setTimeout(() => {
-    const rows = _clone(_cache[name] || []);
-    _serverCall('replaceCollection', { collection: name, rows })
-      .then(result => {
-        if (!result || result.ok === false) {
-          const message =
-            result && (result.error || result.message)
-              ? (result.error || result.message)
-              : 'GAS Sheet sync returned an invalid response.';
-          throw new Error(message);
-        }
+const _scheduleCollectionSync = scheduleCollectionSync;
 
-        const syncedRows = Array.isArray(result.rows) ? result.rows : rows;
-        _cache[name] = syncedRows;
-        _saveLocal(name, syncedRows);
-        console.log(`[GAS Sheet Sync] ${name} synced (${syncedRows.length})`);
+export async function flushCollectionSync(name) {
+  _assertCollection(name, true);
+  const state = _stateFor(name);
+  clearTimeout(state.timer); state.timer = null;
+  if (state.inFlight) return state.inFlight;
+  if (state.dirtyGeneration <= state.confirmedGeneration) return _clone(state.confirmedRows);
+  const generation = state.dirtyGeneration;
+  const rows = _clone(_cache[name] || []);
+  const clientMutationId = _mutationId(name, generation);
+  state.inFlight = (async () => {
+    try {
+      const result = await callGasMutation('replaceCollection', { collection: name, rows, clientGeneration: generation, clientMutationId });
+      if (!Array.isArray(result?.rows)) throw new Error('replaceCollection 未回傳完整 authoritative rows');
+      state.confirmedRows = _clone(result.rows);
+      state.confirmedGeneration = generation;
+      const completed = state.waiters.filter(waiter => waiter.generation <= generation);
+      state.waiters = state.waiters.filter(waiter => waiter.generation > generation);
+      if (state.dirtyGeneration === generation) {
+        _cache[name] = _clone(result.rows);
+        _emitCollectionChanged(name, 'authoritative', { generation, clientMutationId });
+      }
+      completed.forEach(waiter => waiter.resolve(_clone(result.rows)));
+      if (state.dirtyGeneration > generation) {
+        state.timer = setTimeout(() => { flushCollectionSync(name).catch(() => {}); }, 0);
+      } else if (state.uiToken) {
+        endDbOperation(state.uiToken, { message: `${_collectionLabel(name)}已同步`, silent: true });
+        state.uiToken = null;
+      }
+      return _clone(result.rows);
+    } catch (error) {
+      rollbackCollection(name, error);
+      throw error;
+    } finally {
+      state.inFlight = null;
+    }
+  })();
+  return state.inFlight;
+}
 
-        if (_syncGenerations[name] === generation) {
-          endDbOperation(_syncUiTokens[name], { message: `${label} synced`, silent: true });
-          _syncUiTokens[name] = null;
-        }
-      })
-      .catch(err => {
-        console.error(`[GAS Sheet Sync] ${name} failed`, err);
-        if (_syncGenerations[name] === generation) {
-          const detail = err && err.message ? err.message : String(err);
-          endDbOperation(_syncUiTokens[name], { error: true, message: `${label} Sheet sync failed: ${detail}` });
-          _syncUiTokens[name] = null;
-        }
-      });
-  }, 250);
+export function rollbackCollection(name, error) {
+  const state = _stateFor(name);
+  clearTimeout(state.timer); state.timer = null;
+  _cache[name] = _clone(state.confirmedRows);
+  const waiters = state.waiters.splice(0);
+  state.dirtyGeneration = state.confirmedGeneration;
+  state.inFlight = null;
+  _emitCollectionChanged(name, 'rollback', { error });
+  waiters.forEach(waiter => waiter.reject(error));
+  if (state.uiToken) {
+    const detail = error?.message || String(error);
+    endDbOperation(state.uiToken, { error: true, message: `${_collectionLabel(name)}同步失敗，未寫入的變更已還原：${detail}` });
+    state.uiToken = null;
+  }
+  return _clone(_cache[name]);
+}
+
+export function mutateCollection(name, mutator, reason = 'mutation') {
+  _assertCollection(name, true);
+  assertGasMutationAllowed();
+  const state = _stateFor(name);
+  if (_dataMode === 'gasSheet' && state.batchInFlight) {
+    return state.batchInFlight.done.then(() => mutateCollection(name, mutator, reason));
+  }
+  const before = _clone(_getCollection(name));
+  const candidate = mutator(_clone(before));
+  if (!Array.isArray(candidate)) throw new TypeError('collection mutator 必須回傳 array');
+  _setCollection(name, candidate, { sync: false, phase: 'optimistic', event: { reason, beforeSnapshot: before } });
+  return _dataMode === 'gasSheet' ? scheduleCollectionSync(name, { reason }) : Promise.resolve(_clone(candidate));
+}
+
+export async function mutateCollectionsBatch(collectionNames, buildCandidates, reason = 'batch mutation') {
+  const names = [...new Set(collectionNames || [])].sort();
+  if (!names.length) throw new Error('batch collections 不可空白');
+  names.forEach(name => _assertCollection(name, true));
+  if (typeof buildCandidates !== 'function') throw new TypeError('buildCandidates 必須是 function');
+  assertGasMutationAllowed();
+  if (_dataMode !== 'gasSheet') {
+    const current = Object.fromEntries(names.map(name => [name, _clone(_getCollection(name))]));
+    const candidates = buildCandidates(current);
+    names.forEach(name => _setCollection(name, candidates[name], { sync: false, phase: 'optimistic', event: { reason } }));
+    return Object.fromEntries(names.map(name => [name, _clone(_cache[name])]));
+  }
+  const reservation = await reserveCollectionsForBatch(names);
+  const clientMutationId = _mutationId('batch', Date.now());
+  try {
+    const current = Object.fromEntries(names.map(name => [name, _clone(_cache[name])]));
+    const candidates = buildCandidates(current);
+    names.forEach(name => {
+      if (!Array.isArray(candidates?.[name])) throw new TypeError(`batch candidate 缺少 ${name}`);
+      const state = _stateFor(name);
+      state.dirtyGeneration += 1;
+      _setCollection(name, candidates[name], { sync: false, phase: 'optimistic', event: { reason } });
+    });
+    const result = await callGasMutation('replaceCollectionsBatch', { collections: Object.fromEntries(names.map(name => [name, _clone(_cache[name])])), clientMutationId });
+    if (!result?.collections) throw new Error('replaceCollectionsBatch 未回傳 authoritative collections');
+    names.forEach(name => {
+      if (!Array.isArray(result.collections[name])) throw new Error(`batch response 缺少 ${name}`);
+      const state = _stateFor(name);
+      state.confirmedRows = _clone(result.collections[name]);
+      state.confirmedGeneration = state.dirtyGeneration;
+      _cache[name] = _clone(result.collections[name]);
+      const completed = state.waiters.splice(0);
+      completed.forEach(waiter => waiter.resolve(_clone(result.collections[name])));
+      _emitCollectionChanged(name, 'authoritative', { clientMutationId });
+    });
+    return result.collections;
+  } catch (error) {
+    names.forEach(name => {
+      const state = _stateFor(name);
+      clearTimeout(state.timer);
+      state.timer = null;
+      _cache[name] = _clone(state.confirmedRows);
+      state.dirtyGeneration = state.confirmedGeneration;
+      const waiters = state.waiters.splice(0);
+      waiters.forEach(waiter => waiter.reject(error));
+      _emitCollectionChanged(name, 'rollback', { error, clientMutationId });
+    });
+    throw error;
+  } finally {
+    releaseCollectionsFromBatch(names, reservation);
+  }
 }
 
 async function _loadFromGasSheet() {
@@ -239,7 +445,11 @@ async function _loadFromGasSheet() {
 
   COLLECTIONS.forEach(name => {
     const rows = Array.isArray(data[name]) ? data[name] : [];
-    _cache[name] = rows;
+    _cache[name] = _clone(rows);
+    const state = _stateFor(name);
+    state.confirmedRows = _clone(rows);
+    state.dirtyGeneration = 0;
+    state.confirmedGeneration = 0;
   });
   _gasReady = true;
   console.log('[DataStore] loaded from GAS Sheet backend');
@@ -267,9 +477,10 @@ function _snapshotCollections() {
 
 
 // 初始化：localStorage 模式沿用 seedData；GAS Shell 模式啟動時一次載入 Sheet 到前端 cache。
-import { beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0';
-import { loadCsvDb, exportCsvDbSnapshot } from './csvDb.js?v=1.6.0';
-import { normalizeBudgetRecord, normalizeBudgetUnitCodes } from './budgetGroupUtils.js?v=1.6.0';
+import { beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-salary-summary-cards-hotfix-12';
+import { loadCsvDb, exportCsvDbSnapshot } from './csvDb.js?v=1.6.0-salary-summary-cards-hotfix-12';
+import { normalizeBudgetRecord, normalizeBudgetUnitCodes } from './budgetGroupUtils.js?v=1.6.0-salary-summary-cards-hotfix-12';
+import { normalizeForecastEvaluationRecord, normalizeForecastEvaluations } from './forecastEvaluationUtils.js?v=1.6.0-salary-summary-cards-hotfix-12';
 import {
   seedBudgets,
   seedUnits,
@@ -277,7 +488,7 @@ import {
   seedCalendarPeriods,
   seedCalendarRows,
   seedCalendarHolidays
-} from './seedData.js?v=1.6.0';
+} from './seedData.js?v=1.6.0-salary-summary-cards-hotfix-12';
 
 export async function initDataStore() {
   _dataMode = _detectDataMode();
@@ -292,17 +503,9 @@ export async function initDataStore() {
       return;
     } catch (e) {
       console.error('[DataStore] GAS Sheet backend load failed', e);
-
-      if (!_allowGasLocalFallback()) {
-        _isInitializing = false;
-        _gasReady = false;
-        throw e;
-      }
-
-      console.warn('[DataStore] fallback to localStorage because allowLocalFallback is true');
-      if (window.showToast) window.showToast('Sheet 後端載入失敗，已暫時改用本機資料', 'error');
-      _dataMode = 'localStorage';
+      _isInitializing = false;
       _gasReady = false;
+      throw e;
     }
   }
 
@@ -385,17 +588,194 @@ function _removeConfirmedCacheIds(collection, ids) {
   _cache[collection] = (_cache[collection] || []).filter(item => !confirmed.has(String(item.id)));
 }
 
+async function _saveCollectionRecord(collection, input, prefix, normalize = value => value) {
+  const normalized = normalize({ ...(input || {}) });
+  let id = String(normalized.id || '').trim();
+  if (!id) id = _newId(prefix);
+  let nextRecord;
+  const rows = await mutateCollection(collection, current => {
+    const now = new Date().toISOString();
+    const index = normalized.id ? current.findIndex(row => String(row.id) === id) : -1;
+    if (normalized.id && index < 0) {
+      const error = new Error(`EDIT_TARGET_NOT_FOUND: ${collection}/${id}`);
+      error.code = 'EDIT_TARGET_NOT_FOUND';
+      throw error;
+    }
+    const existing = index >= 0 ? current[index] : null;
+    nextRecord = { ...(existing || {}), ...normalized, id, createdAt: existing?.createdAt || now, updatedAt: now };
+    return index >= 0 ? current.map((row, i) => i === index ? nextRecord : row) : [...current, nextRecord];
+  }, normalized.id ? 'edit' : 'create');
+  return rows.find(row => String(row.id) === id) || nextRecord;
+}
+
+async function _deleteCollectionRecords(collection, ids) {
+  const wanted = [...new Set((ids || []).map(String).filter(Boolean))];
+  await mutateCollection(collection, rows => {
+    const existing = new Set(rows.map(row => String(row.id)));
+    const missing = wanted.filter(id => !existing.has(id));
+    if (missing.length) {
+      const error = new Error(`DELETE_TARGET_NOT_FOUND: ${collection}/${missing.join(',')}`);
+      error.code = 'DELETE_TARGET_NOT_FOUND';
+      throw error;
+    }
+    return rows.filter(row => !wanted.includes(String(row.id)));
+  }, 'delete');
+  return { deletedIds: wanted, deletedCount: wanted.length };
+}
+
 export async function saveHourSettingsBatch(records) {
-  if (_dataMode !== 'gasSheet') {
-    const addedRecords = await Promise.all((records || []).map(record => saveHourSetting(record)));
-    return { selected: records.length, added: addedRecords.length, addedRecords, skipped: [] };
+  const source = Array.isArray(records) ? records : [];
+  const now = new Date().toISOString();
+  const addedRecords = source.map(record => ({ ...record, id: record.id || _newId('HOUR'), createdAt: now, updatedAt: now }));
+  const rows = _dataMode === 'gasSheet' ? await mutateCollection('hourSettings', current => [...current, ...addedRecords], 'hour batch create') : await _setCollection('hourSettings', [..._clone(_getCollection('hourSettings')), ...addedRecords]);
+  const ids = new Set(addedRecords.map(row => row.id));
+  return { selected: source.length, added: addedRecords.length, addedRecords: rows.filter(row => ids.has(row.id)), skipped: [] };
+}
+
+const REFERENCED_HOUR_IDENTITY_GUARD = '此時數設定已被行事曆使用，原作息類型與實際單位不可移除；可保留原組合並新增其他組合。';
+
+function _hourSettingKey(row) {
+  return [row.academicYear, row.scheduleType, row.unitCode, row.weekdays, row.startTime, row.endTime]
+    .map(value => String(value ?? '').trim())
+    .join('|');
+}
+
+/**
+ * Atomically creates the selected schedule type × unit combinations.
+ * Local and GAS modes intentionally share this exact candidate builder.
+ */
+export async function saveHourSettingCombinations(input = {}) {
+  const editingId = String(input.editingId || '').trim();
+  const academicYear = String(input.academicYear || '').trim();
+  const scheduleTypes = [...new Set((input.scheduleTypes || []).map(value => String(value).trim()).filter(Boolean))];
+  const unitCodes = [...new Set((input.unitCodes || []).map(value => String(value).trim()).filter(Boolean))];
+  const weekdays = String(input.weekdays || '').trim();
+  const startTime = String(input.startTime || '').trim();
+  const endTime = String(input.endTime || '').trim();
+  const hours = Number(input.hours);
+  const note = String(input.note || '').trim();
+
+  if (!academicYear || !scheduleTypes.length || !unitCodes.length || !weekdays || !startTime || !endTime) {
+    throw new Error('時數設定必填欄位不可空白');
   }
-  return callGasMutation('saveHourSettingsBatch', { records }, 'hourSettings');
+  if (startTime >= endTime) throw new Error('開始時間必須小於結束時間');
+  if (!Number.isFinite(hours) || hours < 0) throw new Error('時數必須為有限非負數');
+
+  const unitMap = new Map((_getCollection('units') || []).map(unit => [String(unit.unitCode), unit]));
+  const missingUnits = unitCodes.filter(code => !unitMap.has(code));
+  if (missingUnits.length) throw new Error(`實際單位已不存在於單位設定：${missingUnits.join('、')}`);
+  const budgets = _getCollection('budgets') || [];
+  unitCodes.forEach(code => {
+    const scopes = budgets.filter(budget =>
+      String(budget.academicYear) === academicYear
+      && String(budget.budgetName || '').trim()
+      && normalizeBudgetUnitCodes(budget.unitCodes).includes(code)
+    );
+    if (!scopes.length) throw new Error(`實際單位不屬於目前學年度的預算群組：${code}`);
+    if (scopes.length > 1) throw new Error(`實際單位同時屬於多個預算群組：${code}`);
+  });
+
+  let originalId = editingId || null;
+  let createdIds = [];
+  const authoritativeRows = await mutateCollection('hourSettings', current => {
+    const now = new Date().toISOString();
+    const originalIndex = editingId ? current.findIndex(row => String(row.id) === editingId) : -1;
+    if (editingId && originalIndex < 0) {
+      const error = new Error(`EDIT_TARGET_NOT_FOUND: hourSettings/${editingId}`);
+      error.code = 'EDIT_TARGET_NOT_FOUND';
+      throw error;
+    }
+    const original = originalIndex >= 0 ? current[originalIndex] : null;
+    const keepsOriginalCombination = Boolean(original)
+      && String(original.academicYear) === academicYear
+      && scheduleTypes.includes(String(original.scheduleType))
+      && unitCodes.includes(String(original.unitCode));
+    const isReferenced = Boolean(original) && (_getCollection('calendarRows') || [])
+      .some(row => String(row.sourceHourSettingId) === editingId);
+    if (isReferenced && !keepsOriginalCombination) {
+      const error = new Error(REFERENCED_HOUR_IDENTITY_GUARD);
+      error.code = 'REFERENCED_HOUR_IDENTITY_CHANGE';
+      throw error;
+    }
+
+    const combinations = scheduleTypes.flatMap(scheduleType => unitCodes.map(unitCode => ({ scheduleType, unitCode })));
+    const originalPairIndex = original && keepsOriginalCombination
+      ? combinations.findIndex(item => item.scheduleType === String(original.scheduleType) && item.unitCode === String(original.unitCode))
+      : -1;
+    const preservedIndex = original ? (originalPairIndex >= 0 ? originalPairIndex : 0) : -1;
+    createdIds = [];
+    const expanded = combinations.map((combination, index) => {
+      const preserveOriginal = Boolean(original) && index === preservedIndex;
+      const id = preserveOriginal ? editingId : _newId('HOUR');
+      if (!preserveOriginal) createdIds.push(id);
+      return {
+        ...(preserveOriginal ? original : {}),
+        id,
+        academicYear,
+        scheduleType: combination.scheduleType,
+        unitCode: combination.unitCode,
+        unitName: String(unitMap.get(combination.unitCode)?.unitName || ''),
+        weekdays,
+        startTime,
+        endTime,
+        hours,
+        note,
+        createdAt: preserveOriginal ? (original.createdAt || now) : now,
+        updatedAt: now
+      };
+    });
+    if (!original && expanded.length) originalId = null;
+    const candidate = original ? [...current.slice(0, originalIndex), ...expanded, ...current.slice(originalIndex + 1)] : [...current, ...expanded];
+    const keys = new Set();
+    for (const row of candidate) {
+      const key = _hourSettingKey(row);
+      if (keys.has(key)) {
+        const error = new Error('同一學年度、作息類型、單位、週期、開館時間不可重複');
+        error.code = 'DUPLICATE_HOUR_SETTING';
+        throw error;
+      }
+      keys.add(key);
+    }
+    return candidate;
+  }, 'hour combinations save');
+
+  return {
+    originalId,
+    createdIds: [...createdIds],
+    createdCount: createdIds.length,
+    authoritativeRows
+  };
 }
 
 export async function saveCalendarRowsBatch(records) {
   if (_dataMode !== 'gasSheet') { const addedRecords=addCalendarRows(records); return { addedRecords, added: addedRecords.length }; }
-  return callGasMutation('saveCalendarRowsBatch', { records }, 'calendarRows');
+  const now = new Date().toISOString();
+  const addedRecords = [];
+  const rows = await mutateCollection('calendarRows', current => {
+    const keys = new Set(current.map(r => `${r.date}|${r.academicYear}|${r.scheduleType}|${r.unitCode}|${r.startTime}|${r.endTime}`));
+    (records || []).forEach(row => { const key=`${row.date}|${row.academicYear}|${row.scheduleType}|${row.unitCode}|${row.startTime}|${row.endTime}`; if(!keys.has(key)){keys.add(key);addedRecords.push({ ...row, id: row.id || _newId('ROW'), createdAt: now });} });
+    return [...current, ...addedRecords];
+  }, 'calendar rows batch create');
+  const ids = new Set(addedRecords.map(row => row.id));
+  return { addedRecords: rows.filter(row => ids.has(row.id)), added: addedRecords.length };
+}
+
+export async function saveCalendarPeriodRowsBatch(periodsToAdd, rowsToAdd) {
+  if (_dataMode !== 'gasSheet') {
+    await Promise.all((periodsToAdd || []).map(addCalendarPeriod));
+    return saveCalendarRowsBatch(rowsToAdd || []);
+  }
+  let added = [];
+  const result = await mutateCollectionsBatch(['calendarPeriods','calendarRows'], current => {
+    const now = new Date().toISOString();
+    const periodDates = new Set(current.calendarPeriods.map(row => row.date));
+    const periods = [...current.calendarPeriods, ...(periodsToAdd || []).filter(row => { if(periodDates.has(row.date))return false; periodDates.add(row.date); return true; }).map(row => ({...row,id:row.id||_newId('PERIOD'),createdAt:now}))];
+    const rowKeys = new Set(current.calendarRows.map(r => `${r.date}|${r.academicYear}|${r.scheduleType}|${r.unitCode}|${r.startTime}|${r.endTime}`));
+    added = (rowsToAdd || []).filter(row => {const key=`${row.date}|${row.academicYear}|${row.scheduleType}|${row.unitCode}|${row.startTime}|${row.endTime}`;if(rowKeys.has(key))return false;rowKeys.add(key);return true;}).map(row => ({...row,id:row.id||_newId('ROW'),createdAt:now}));
+    return {calendarPeriods:periods,calendarRows:[...current.calendarRows,...added]};
+  },'calendar period rows batch');
+  const ids = new Set(added.map(row => row.id));
+  return {added:added.length,addedRecords:result.calendarRows.filter(row => ids.has(row.id))};
 }
 
 export async function deleteCalendarRowsByScope(payload) {
@@ -407,7 +787,11 @@ export async function deleteCalendarRowsByScope(payload) {
     _removeConfirmedCacheIds('calendarRows',deletedIds); _saveLocal('calendarRows',_cache.calendarRows);
     return { deletedIds, deletedCount: deletedIds.length };
   }
-  const result=await callGasMutation('deleteCalendarRowsByScope', payload); _removeConfirmedCacheIds('calendarRows',result.deletedIds); return result;
+  const budgets = (_cache.budgets || []).filter(b=>b.budgetName===payload.selectedBudgetName);
+  const byYear = new Map(budgets.map(b=>[String(b.academicYear),new Set(normalizeBudgetUnitCodes(b.unitCodes))]));
+  const sourceIds = new Set(payload.sourceHourSettingIds || []);
+  const deletedIds = (_cache.calendarRows || []).filter(r=>r.date>=payload.startDate&&r.date<=payload.endDate&&byYear.get(String(r.academicYear))?.has(String(r.unitCode))&&(!sourceIds.size||sourceIds.has(r.sourceHourSettingId))).map(r=>r.id);
+  return _deleteCollectionRecords('calendarRows', deletedIds);
 }
 
 export function exportLocalCsvDbSnapshot() {
@@ -436,7 +820,7 @@ export function getBudgets() {
 }
 
 export async function saveBudget(budget) {
-  if (_dataMode === 'gasSheet') return _upsertCacheRecord('budgets', await callGasMutation('saveBudget', budget));
+  if (_dataMode === 'gasSheet') return _saveCollectionRecord('budgets', budget, 'BUD', normalizeBudgetRecord);
   const list = _getCollection('budgets');
   const now = new Date().toISOString();
   const normalized = normalizeBudgetRecord(budget);
@@ -473,7 +857,7 @@ export async function saveBudget(budget) {
 }
 
 export async function deleteBudgets(ids) {
-  if (_dataMode === 'gasSheet') { const r=await callGasMutation('deleteBudget',{ids}); _removeConfirmedCacheIds('budgets',r.deletedIds); return r; }
+  if (_dataMode === 'gasSheet') return _deleteCollectionRecords('budgets', ids);
   let list = _getCollection('budgets');
   list = list.filter(b => !ids.includes(b.id));
   _setCollection('budgets', list);
@@ -487,7 +871,7 @@ export function getUnits() {
 }
 
 export async function saveUnit(unit) {
-  if (_dataMode === 'gasSheet') return _upsertCacheRecord('units', await callGasMutation('saveUnit', unit));
+  if (_dataMode === 'gasSheet') return _saveCollectionRecord('units', unit, 'UNIT');
   const list = _getCollection('units');
   const now = new Date().toISOString();
   let newItem;
@@ -531,7 +915,7 @@ export async function saveUnit(unit) {
 }
 
 export async function deleteUnits(ids) {
-  if (_dataMode === 'gasSheet') { const r=await callGasMutation('deleteUnit',{ids}); _removeConfirmedCacheIds('units',r.deletedIds); return r; }
+  if (_dataMode === 'gasSheet') return _deleteCollectionRecords('units', ids);
   let list = _getCollection('units');
   list = list.filter(u => !ids.includes(u.id));
   _setCollection('units', list);
@@ -539,21 +923,19 @@ export async function deleteUnits(ids) {
 }
 export const deleteUnit = deleteUnits;
 
-export function moveUnitOrder(id, direction) {
-  const list = _getCollection('units');
-  const idx = list.findIndex(u => u.id === id);
-  if (idx === -1) return false;
-
-  const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
-  if (targetIdx < 0 || targetIdx >= list.length) return false;
-
-  const next = [...list];
-  const temp = next[idx];
-  next[idx] = next[targetIdx];
-  next[targetIdx] = temp;
-
-  _setCollection('units', next);
-  return true;
+export async function moveUnitOrder(id, direction) {
+  let moved = false;
+  const reorder = list => {
+    const idx = list.findIndex(u => u.id === id), targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (idx < 0 || targetIdx < 0 || targetIdx >= list.length) return list;
+    const next = [...list];
+    [next[idx], next[targetIdx]] = [next[targetIdx], next[idx]];
+    moved = true;
+    return next;
+  };
+  if (_dataMode === 'gasSheet') await mutateCollection('units', reorder, 'reorder');
+  else await _setCollection('units', reorder(_clone(_getCollection('units'))));
+  return moved;
 }
 
 // 檢查單位是否被使用（時數設定或行事曆）
@@ -803,7 +1185,7 @@ export function getHourSettings() {
 }
 
 export async function saveHourSetting(setting) {
-  if (_dataMode === 'gasSheet') return _upsertCacheRecord('hourSettings', await callGasMutation('saveHourSetting', setting));
+  if (_dataMode === 'gasSheet') return _saveCollectionRecord('hourSettings', setting, 'HOUR');
   const list = _getCollection('hourSettings');
   const now = new Date().toISOString();
   let newItem;
@@ -811,14 +1193,17 @@ export async function saveHourSetting(setting) {
   if (setting.id) {
     const idx = list.findIndex(h => h.id === setting.id);
     if (idx !== -1) {
+      const { hourlyWage: _deprecatedHourlyWage, ...existingWithoutWage } = list[idx];
+      const { hourlyWage: _ignoredHourlyWage, ...settingWithoutWage } = setting;
       newItem = {
-        ...list[idx],
-        ...setting,
+        ...existingWithoutWage,
+        ...settingWithoutWage,
         updatedAt: now
       };
       list[idx] = newItem;
     } else {
-      newItem = { ...setting, createdAt: now, updatedAt: now };
+      const { hourlyWage: _ignoredHourlyWage, ...settingWithoutWage } = setting;
+      newItem = { ...settingWithoutWage, createdAt: now, updatedAt: now };
       list.push(newItem);
     }
   } else {
@@ -832,7 +1217,6 @@ export async function saveHourSetting(setting) {
       startTime: setting.startTime,
       endTime: setting.endTime,
       hours: Number(setting.hours),
-      hourlyWage: Number(setting.hourlyWage),
       note: setting.note || '',
       createdAt: now,
       updatedAt: now
@@ -845,7 +1229,7 @@ export async function saveHourSetting(setting) {
 }
 
 export async function deleteHourSettings(ids) {
-  if (_dataMode === 'gasSheet') { const r=await callGasMutation('deleteHourSettings',{ids}); _removeConfirmedCacheIds('hourSettings',r.deletedIds); return r; }
+  if (_dataMode === 'gasSheet') return _deleteCollectionRecords('hourSettings', ids);
   let list = _getCollection('hourSettings');
   list = list.filter(h => !ids.includes(h.id));
   _setCollection('hourSettings', list);
@@ -864,7 +1248,10 @@ export function getCalendarPeriods() {
 }
 
 export async function addCalendarPeriod(period) {
-  if (_dataMode === 'gasSheet') return _upsertCacheRecord('calendarPeriods', await callGasMutation('saveCalendarPeriod', period));
+  if (_dataMode === 'gasSheet') {
+    if ((_cache.calendarPeriods || []).some(row => row.date === period.date)) return null;
+    return _saveCollectionRecord('calendarPeriods', period, 'PERIOD');
+  }
   const list = _getCollection('calendarPeriods');
   const exists = list.some(p => p.date === period.date);
   if (exists) return null;
@@ -881,7 +1268,13 @@ export async function addCalendarPeriod(period) {
 }
 
 export async function deleteCalendarPeriodsByDateRange(startDate, endDate) {
-  if (_dataMode === 'gasSheet') { const ids=(_cache.calendarPeriods||[]).filter(p=>p.date>=startDate&&p.date<=endDate).map(p=>p.id); const r=await callGasMutation('deleteCalendarPeriods',{ids,startDate,endDate}); _removeConfirmedCacheIds('calendarPeriods',r.deletedIds); _removeConfirmedCacheIds('calendarRows',r.deletedCalendarRowIds||[]); return r; }
+  if (_dataMode === 'gasSheet') {
+    await mutateCollectionsBatch(['calendarPeriods','calendarRows'], current => ({
+      calendarPeriods: current.calendarPeriods.filter(p => p.date < startDate || p.date > endDate),
+      calendarRows: current.calendarRows.filter(r => r.date < startDate || r.date > endDate)
+    }), 'delete calendar date range');
+    return { deletedCount: 0 };
+  }
   // 刪除 period 及該區間內的 rows
   let periods = _getCollection('calendarPeriods');
   let rows = _getCollection('calendarRows');
@@ -970,7 +1363,18 @@ export function getCalendarHolidays() {
 }
 
 export async function saveCalendarHoliday(payload) {
-  if (_dataMode === 'gasSheet') return _upsertCacheRecord('calendarHolidays', await callGasMutation('saveCalendarHoliday', payload));
+  if (_dataMode === 'gasSheet') {
+    let holiday = null;
+    const result = await mutateCollectionsBatch(['calendarHolidays','calendarRows'], current => {
+      if (current.calendarHolidays.some(row => row.date === payload.date)) {
+        const error = new Error('此日期已設定假日'); error.code = 'DUPLICATE'; throw error;
+      }
+      const now = new Date().toISOString();
+      holiday = { ...payload, id: payload.id || _newId('HOLIDAY'), createdAt: now, updatedAt: now };
+      return {calendarHolidays:[...current.calendarHolidays,holiday],calendarRows:current.calendarRows.filter(row => row.date !== payload.date)};
+    }, 'create holiday');
+    return result.calendarHolidays.find(row => row.id === holiday.id) || holiday;
+  }
   const list = _getCollection('calendarHolidays');
   const now = new Date().toISOString();
   const date = payload.date; // 預期 'YYYY-MM-DD'
@@ -1001,7 +1405,7 @@ export async function saveCalendarHoliday(payload) {
 }
 
 export async function deleteCalendarHoliday(id) {
-  if (_dataMode === 'gasSheet') { const r=await callGasMutation('deleteCalendarHoliday',{ids:[id]}); _removeConfirmedCacheIds('calendarHolidays',r.deletedIds); return r; }
+  if (_dataMode === 'gasSheet') return _deleteCollectionRecords('calendarHolidays', [id]);
   let list = _getCollection('calendarHolidays');
   list = list.filter(h => h.id !== id);
   _setCollection('calendarHolidays', list);
@@ -1071,15 +1475,9 @@ export function getAllCalendarRowsRaw() {
 
 // 清除全部資料（開發用）
 export function clearAllData() {
+  if (_dataMode === 'gasSheet') throw new Error('gasSheet 模式禁止清除完整 collection');
   Object.values(LS_KEYS).forEach(k => localStorage.removeItem(k));
   _cache = _emptyCache();
-  if (_dataMode === 'gasSheet' && _gasReady && _isGasWriteEnabled()) {
-    COLLECTIONS.forEach(name => {
-      if (WRITE_ENABLED_COLLECTIONS.has(name)) {
-        _scheduleCollectionSync(name);
-      }
-    });
-  }
 }
 
 // ===== SALARY ENTRIES (時薪登記 / 核銷) =====
@@ -1087,8 +1485,46 @@ export function getSalaryEntries() {
   return [..._getCollection('salaryEntries')];
 }
 
+function _salaryKey(row) {
+  return [row.academicYear, row.year, row.month, row.unitCode].map(value => String(value ?? '').trim()).join('|');
+}
+
+export function inspectSalaryEntryDuplicates(rows = getSalaryEntries()) {
+  const groups = new Map();
+  (rows || []).forEach(row => {
+    const key = _salaryKey(row);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(String(row.id || ''));
+  });
+  return [...groups.entries()].filter(([, ids]) => ids.length > 1).map(([key, ids]) => ({ key, ids, rowCount: ids.length }));
+}
+
+export async function saveSalaryEntriesBatch(entries) {
+  const source = Array.isArray(entries) ? entries : [];
+  const touchedIds = [];
+  const build = current => {
+    const candidate = _clone(current), now = new Date().toISOString();
+    touchedIds.length = 0;
+    source.forEach(raw => {
+      const item = { ...raw, actualHours: Number(raw.actualHours ?? 0), hourlyWage: Number(raw.hourlyWage ?? 0), actualAmount: Number(raw.actualAmount) };
+      const index = item.id ? candidate.findIndex(row => String(row.id) === String(item.id)) : candidate.findIndex(row => _salaryKey(row) === _salaryKey(item));
+      if (item.id && index < 0) { const error = new Error(`EDIT_TARGET_NOT_FOUND: salaryEntries/${item.id}`); error.code = 'EDIT_TARGET_NOT_FOUND'; throw error; }
+      const existing = index >= 0 ? candidate[index] : null, id = existing?.id || item.id || _newId('SALARY');
+      const next = { ...(existing || {}), ...item, id, createdAt: existing?.createdAt || now, updatedAt: now };
+      if (index >= 0) candidate[index] = next; else candidate.push(next);
+      touchedIds.push(id);
+    });
+    const duplicates = inspectSalaryEntryDuplicates(candidate);
+    if (duplicates.length) throw new Error(`薪資複合鍵重複：${duplicates.map(item => item.key).join(', ')}`);
+    return candidate;
+  };
+  const rows = _dataMode === 'gasSheet' ? await mutateCollection('salaryEntries', build, 'salary batch save') : await _setCollection('salaryEntries', build(_clone(_getCollection('salaryEntries'))));
+  const wanted = new Set(touchedIds);
+  return rows.filter(row => wanted.has(row.id));
+}
+
 export async function saveSalaryEntry(entry) {
-  if (_dataMode === 'gasSheet') return _upsertCacheRecord('salaryEntries', await callGasMutation('saveSalaryEntry', entry));
+  if (_dataMode === 'gasSheet') return _saveCollectionRecord('salaryEntries', entry, 'SALARY');
   const list = _getCollection('salaryEntries');
   const now = new Date().toISOString();
 
@@ -1125,7 +1561,7 @@ export async function saveSalaryEntry(entry) {
   const actualAmount =
     hasDirectActualAmount && !isNaN(directActualAmount)
       ? directActualAmount
-      : actualHours * hourlyWage;
+      : (existing ? (Number(existing.actualAmount) || 0) : 0);
 
   let newItem;
 
@@ -1164,7 +1600,7 @@ export async function saveSalaryEntry(entry) {
 }
 
 export async function deleteSalaryEntry(id) {
-  if (_dataMode === 'gasSheet') { const r=await callGasMutation('deleteSalaryEntry',{ids:[id]}); _removeConfirmedCacheIds('salaryEntries',r.deletedIds); return r; }
+  if (_dataMode === 'gasSheet') return _deleteCollectionRecords('salaryEntries', [id]);
   let list = _getCollection('salaryEntries');
   list = list.filter(e => e.id !== id);
   _setCollection('salaryEntries', list);
@@ -1191,7 +1627,7 @@ export function getSalaryEntriesByDateRange(startYm, endYm) {
 
 // ===== FORECAST EVALUATIONS (新增專用，僅用於差額與預估頁的未來評估方案) =====
 export function getForecastEvaluations() {
-  return [..._getCollection('forecastEvaluations')];
+  return normalizeForecastEvaluations(_getCollection('forecastEvaluations'));
 }
 
 export function generateForecastEvaluationId() {
@@ -1199,54 +1635,23 @@ export function generateForecastEvaluationId() {
 }
 
 export async function saveForecastEvaluation(evaluation) {
-  if (_dataMode === 'gasSheet') return _upsertCacheRecord('forecastEvaluations', await callGasMutation('saveForecastEvaluation', evaluation));
-  const list = _getCollection('forecastEvaluations');
-  const now = new Date().toISOString();
-  let newItem;
-
-  if (evaluation.id) {
-    // update existing
-    const idx = list.findIndex(ev => ev.id === evaluation.id);
-    if (idx !== -1) {
-      newItem = {
-        ...list[idx],
-        ...evaluation,
-        updatedAt: now
-      };
-      list[idx] = newItem;
-    } else {
-      // id not found, treat as new
-      newItem = {
-        id: evaluation.id || generateForecastEvaluationId(),
-        name: evaluation.name || '',
-        budget: Number(evaluation.budget) || 0,
-        baseHourlyWage: Number(evaluation.baseHourlyWage) || 0,
-        intervals: Array.isArray(evaluation.intervals) ? evaluation.intervals : [],
-        createdAt: now,
-        updatedAt: now
-      };
-      list.push(newItem);
-    }
-  } else {
-    // new
-    newItem = {
-      id: generateForecastEvaluationId(),
-      name: evaluation.name || '',
-      budget: Number(evaluation.budget) || 0,
-      baseHourlyWage: Number(evaluation.baseHourlyWage) || 0,
-      intervals: Array.isArray(evaluation.intervals) ? evaluation.intervals : [],
-      createdAt: now,
-      updatedAt: now
-    };
-    list.push(newItem);
-  }
-
-  _setCollection('forecastEvaluations', list);
-  return newItem;
+  const normalized = normalizeForecastEvaluationRecord(evaluation || {});
+  const payload = {
+    ...(normalized.id ? { id: normalized.id } : {}),
+    name: normalized.name,
+    budget: normalized.budget,
+    baseHourlyWage: normalized.baseHourlyWage,
+    intervals: normalized.intervals
+  };
+  const saved = await _saveCollectionRecord('forecastEvaluations', payload, 'FE', value => value);
+  const normalizedRows = normalizeForecastEvaluations(_getCollection('forecastEvaluations'));
+  _cache.forecastEvaluations = normalizedRows;
+  if (_dataMode === 'gasSheet') _stateFor('forecastEvaluations').confirmedRows = _clone(normalizedRows);
+  return normalizedRows.find(record => record.id === String(saved?.id || '')) || normalizeForecastEvaluationRecord(saved);
 }
 
 export async function deleteForecastEvaluation(id) {
-  if (_dataMode === 'gasSheet') { const r=await callGasMutation('deleteForecastEvaluation',{ids:[id]}); _removeConfirmedCacheIds('forecastEvaluations',r.deletedIds); return r; }
+  if (_dataMode === 'gasSheet') return _deleteCollectionRecords('forecastEvaluations', [id]);
   let list = _getCollection('forecastEvaluations');
   list = list.filter(ev => ev.id !== id);
   _setCollection('forecastEvaluations', list);
