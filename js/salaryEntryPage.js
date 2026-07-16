@@ -1,6 +1,6 @@
-import { getBudgets, getCalendarRows, saveSalaryEntriesBatch, getSalaryEntriesByAcademicYear, getSalaryEntriesByDateRange, getUnits } from './dataStore.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
-import { showToast, formatNumber } from './utils.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
+import { getBudgets, getCalendarRows, saveSalaryEntriesBatch, getSalaryEntriesByAcademicYear, getSalaryEntriesByDateRange, getUnits } from './dataStore.js?v=1.6.0-batch-search-style-hotfix-10';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-batch-search-style-hotfix-10';
+import { showToast, formatNumber } from './utils.js?v=1.6.0-batch-search-style-hotfix-10';
 import {
   getDistinctBudgetNames,
   getBudgetYearsForName,
@@ -14,8 +14,8 @@ import {
   validateYm,
   getAcademicYearFromYm,
   evaluateMonthRegistrationForGroup
-} from './budgetGroupUtils.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
-import { sortUnitCodesByUnitSettings, calculateMonthlyActualTotal } from './salaryMonthUtils.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
+} from './budgetGroupUtils.js?v=1.6.0-batch-search-style-hotfix-10';
+import { sortUnitCodesByUnitSettings, calculateMonthlyActualTotal } from './salaryMonthUtils.js?v=1.6.0-batch-search-style-hotfix-10';
 
 let containerEl = null;
 let salaryFilter = { budgetName: '', mode: 'academicYear', academicYear: '', startYm: '', endYm: '', queried: false };

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Browser gate for PTB 1.6.0 hotfix-8 budget option deduplication."""
+"""Browser gate for PTB 1.6.0 batch behavior and HOTFIX10 search styling."""
 import json
 import sys
 from playwright.sync_api import sync_playwright
@@ -41,6 +41,51 @@ def main():
         batch.click()
         OUT["checks"]["direct_mode_opens"] = page.locator("#hour-batch-add-modal").is_visible()
 
+        style_result = page.evaluate("""() => {
+          const source = document.querySelector('#hour-batch-source-budget-search');
+          const keyword = document.querySelector('#hour-filter-keyword');
+          const keys = ['height', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+            'fontSize', 'borderTopWidth', 'borderTopStyle', 'borderTopColor', 'borderRadius', 'backgroundColor'];
+          const snapshot = element => {
+            const style = getComputedStyle(element);
+            return Object.fromEntries(keys.map(key => [key, key === 'height' ? `${element.getBoundingClientRect().height}px` : style[key]]));
+          };
+          source.blur();
+          keyword.blur();
+          const sourceStyle = snapshot(source);
+          const keywordStyle = snapshot(keyword);
+          source.focus();
+          const sourceFocus = getComputedStyle(source);
+          const sourceFocusStyle = { borderColor: sourceFocus.borderColor, boxShadow: sourceFocus.boxShadow, outline: sourceFocus.outlineStyle };
+          keyword.focus();
+          const keywordFocus = getComputedStyle(keyword);
+          const keywordFocusStyle = { borderColor: keywordFocus.borderColor, boxShadow: keywordFocus.boxShadow, outline: keywordFocus.outlineStyle };
+          return {
+            sourceType: source.type,
+            sourceStyle,
+            keywordStyle,
+            sourceFocusStyle,
+            keywordFocusStyle,
+            baseEqual: JSON.stringify(sourceStyle) === JSON.stringify(keywordStyle),
+            focusEqual: JSON.stringify(sourceFocusStyle) === JSON.stringify(keywordFocusStyle)
+          };
+        }""")
+        OUT["style_result"] = style_result
+        OUT["checks"]["source_search_type_preserved"] = style_result["sourceType"] == "search"
+        OUT["checks"]["search_style_matches_keyword"] = style_result["baseEqual"] and style_result["focusEqual"]
+
+        page.set_viewport_size({"width": 390, "height": 844})
+        OUT["checks"]["mobile_modal_no_overflow"] = page.evaluate("""() => {
+          const modal = document.querySelector('#hour-batch-add-modal .modal-content');
+          const input = document.querySelector('#hour-batch-source-budget-search');
+          const viewport = document.documentElement.clientWidth;
+          return modal.getBoundingClientRect().left >= 0
+            && modal.getBoundingClientRect().right <= viewport
+            && input.getBoundingClientRect().right <= modal.getBoundingClientRect().right
+            && input.scrollWidth <= input.clientWidth;
+        }""")
+        page.set_viewport_size({"width": 1280, "height": 720})
+
         source_years = page.locator("#hour-batch-source-year option").evaluate_all("els => els.map(e => e.value).filter(Boolean)")
         OUT["checks"]["source_year_select"] = "114" in source_years
         page.select_option("#hour-batch-source-year", "114")
@@ -48,6 +93,8 @@ def main():
         beta_options = page.locator("#hour-batch-source-budget option").all_text_contents()
         OUT["checks"]["source_budget_search"] = any("Group_Beta" in text for text in beta_options) and not any("Group_Alpha" in text for text in beta_options)
         page.fill("#hour-batch-source-budget-search", "")
+        restored_options = page.locator("#hour-batch-source-budget option").all_text_contents()
+        OUT["checks"]["source_budget_clear_restores"] = any("Group_Alpha" in text for text in restored_options) and any("Group_Beta" in text for text in restored_options)
         page.select_option("#hour-batch-source-budget", "BUD_ANON_114_ALPHA")
         alpha_preview = page.locator("#hour-batch-preview-tbody tr")
         alpha_text = page.locator("#hour-batch-preview-tbody").inner_text()
@@ -162,7 +209,8 @@ def main():
     required = [
         "main_budget_unit_column", "main_budget_unit_value", "search_budget_unit",
         "button_enabled_without_selection", "direct_mode_opens", "source_year_select",
-        "source_budget_search", "source_budget_preview", "preview_budget_unit_column",
+        "source_search_type_preserved", "search_style_matches_keyword", "mobile_modal_no_overflow",
+        "source_budget_search", "source_budget_clear_restores", "source_budget_preview", "preview_budget_unit_column",
         "source_switch_updates_preview", "same_name_auto_select", "target_year_updates_budgets",
         "target_budget_required", "exact_target_scope_summary", "cross_budget_copy_blocked",
         "source_rows_unchanged", "checkbox_mode", "same_id_source_collapsed",

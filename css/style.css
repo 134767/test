@@ -686,7 +686,9 @@ footer {
 .query-field select,
 .query-field input[type="month"],
 .query-field input[type="text"],
-.query-field input[type="number"] {
+.query-field input[type="search"],
+.query-field input[type="number"],
+#hour-batch-source-budget-search {
   min-height: 32px;
   padding: 5px 8px;
   font-size: 13px;
@@ -696,6 +698,25 @@ footer {
   color: var(--text);
   width: 100%;
   box-sizing: border-box;
+}
+
+.query-field input[type="search"],
+#hour-batch-source-budget-search {
+  font-family: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.query-field input[type="text"]:focus,
+.query-field input[type="search"]:focus,
+#hour-batch-source-budget-search:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(31, 110, 212, 0.12);
+}
+
+#hour-batch-source-budget-search {
+  margin-bottom: 6px;
 }
 
 .query-actions {

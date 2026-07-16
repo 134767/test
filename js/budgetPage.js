@@ -1,9 +1,9 @@
 // js/budgetPage.js
-import { getBudgets, saveBudget, deleteBudgets, getUnits } from './dataStore.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
-import { formatNumber, showToast } from './utils.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
-import { normalizeBudgetRecord, normalizeBudgetUnitCodes, validateRocAcademicYear } from './budgetGroupUtils.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
-import { diagnoseBudgetDuplicateGroups } from './hourBudgetScopeUtils.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
+import { getBudgets, saveBudget, deleteBudgets, getUnits } from './dataStore.js?v=1.6.0-batch-search-style-hotfix-10';
+import { formatNumber, showToast } from './utils.js?v=1.6.0-batch-search-style-hotfix-10';
+import { normalizeBudgetRecord, normalizeBudgetUnitCodes, validateRocAcademicYear } from './budgetGroupUtils.js?v=1.6.0-batch-search-style-hotfix-10';
+import { diagnoseBudgetDuplicateGroups } from './hourBudgetScopeUtils.js?v=1.6.0-batch-search-style-hotfix-10';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-batch-search-style-hotfix-10';
 
 let currentEditingId = null;
 let containerEl = null;

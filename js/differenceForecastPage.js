@@ -12,9 +12,9 @@ import {
   saveForecastEvaluation,
   deleteForecastEvaluation,
   generateForecastEvaluationId
-} from './dataStore.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
-import { formatNumber, showToast, escapeHtml } from './utils.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
+} from './dataStore.js?v=1.6.0-batch-search-style-hotfix-10';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-batch-search-style-hotfix-10';
+import { formatNumber, showToast, escapeHtml } from './utils.js?v=1.6.0-batch-search-style-hotfix-10';
 import {
   validateRocAcademicYear,
   getDistinctBudgetNames,
@@ -22,7 +22,7 @@ import {
   normalizeBudgetUnitCodes,
   sumBudgetAmounts,
   buildBudgetScope
-} from './budgetGroupUtils.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
+} from './budgetGroupUtils.js?v=1.6.0-batch-search-style-hotfix-10';
 
 // ===== 模組狀態 =====
 let containerEl = null;

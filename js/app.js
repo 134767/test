@@ -1,19 +1,19 @@
 // js/app.js
 // 應用程式主控：初始化、tab 切換、各頁面載入
 
-import { installGasRuntimeCompatibility, formatGasRuntimeError } from './gasRuntimeCompat.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
-import { initDataStore, getDataMode, exportLocalCsvDbSnapshot, resetLocalDataFromCsvDb, subscribeCollection } from './dataStore.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
-import { installDbFeedback, beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
-import { AppState, setCurrentTab } from './state.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
-import { initBudgetPage, renderBudgetTable } from './budgetPage.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
-import { initUnitPage, renderUnitTable } from './unitPage.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
-import { initHourSettingPage, renderHourTable } from './hourSettingPage.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
-import { initCalendarPage, renderCalendarTable } from './calendarPage.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
-import { initSalaryEntryPage, renderSalaryEntryPage } from './salaryEntryPage.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
-import { initDifferenceForecastPage, renderDifferenceForecastPage } from './differenceForecastPage.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
-import { installPtb156Enhancements } from './ptb156Enhancements.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
-import { installPtb156cUiSyncPatch } from './ptb156cUiSyncPatch.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
-import { installPtb160UiLayoutHotfix5 } from './ptb160UiLayoutHotfix5.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
+import { installGasRuntimeCompatibility, formatGasRuntimeError } from './gasRuntimeCompat.js?v=1.6.0-batch-search-style-hotfix-10';
+import { initDataStore, getDataMode, exportLocalCsvDbSnapshot, resetLocalDataFromCsvDb, subscribeCollection } from './dataStore.js?v=1.6.0-batch-search-style-hotfix-10';
+import { installDbFeedback, beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-batch-search-style-hotfix-10';
+import { AppState, setCurrentTab } from './state.js?v=1.6.0-batch-search-style-hotfix-10';
+import { initBudgetPage, renderBudgetTable } from './budgetPage.js?v=1.6.0-batch-search-style-hotfix-10';
+import { initUnitPage, renderUnitTable } from './unitPage.js?v=1.6.0-batch-search-style-hotfix-10';
+import { initHourSettingPage, renderHourTable } from './hourSettingPage.js?v=1.6.0-batch-search-style-hotfix-10';
+import { initCalendarPage, renderCalendarTable } from './calendarPage.js?v=1.6.0-batch-search-style-hotfix-10';
+import { initSalaryEntryPage, renderSalaryEntryPage } from './salaryEntryPage.js?v=1.6.0-batch-search-style-hotfix-10';
+import { initDifferenceForecastPage, renderDifferenceForecastPage } from './differenceForecastPage.js?v=1.6.0-batch-search-style-hotfix-10';
+import { installPtb156Enhancements } from './ptb156Enhancements.js?v=1.6.0-batch-search-style-hotfix-10';
+import { installPtb156cUiSyncPatch } from './ptb156cUiSyncPatch.js?v=1.6.0-batch-search-style-hotfix-10';
+import { installPtb160UiLayoutHotfix5 } from './ptb160UiLayoutHotfix5.js?v=1.6.0-batch-search-style-hotfix-10';
 
 let mainContainer = null;
 let tabButtons = {};

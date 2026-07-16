@@ -1,4 +1,4 @@
-import { beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
+import { beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-batch-search-style-hotfix-10';
 
 const active = new WeakSet();
 

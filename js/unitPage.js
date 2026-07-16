@@ -5,9 +5,9 @@ import {
   deleteUnits,
   isUnitUsed,
   moveUnitOrder
-} from './dataStore.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
-import { showToast } from './utils.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-hour-filter-holiday-salary-layout-hotfix-9';
+} from './dataStore.js?v=1.6.0-batch-search-style-hotfix-10';
+import { showToast } from './utils.js?v=1.6.0-batch-search-style-hotfix-10';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-batch-search-style-hotfix-10';
 
 let containerEl = null;
 let currentEditingId = null;
