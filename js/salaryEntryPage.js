@@ -1,6 +1,6 @@
-import { getBudgets, getCalendarRows, saveSalaryEntriesBatch, getSalaryEntriesByAcademicYear, getSalaryEntriesByDateRange, getUnits } from './dataStore.js?v=1.6.0-hour-pure-button-hotfix-4';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-hour-pure-button-hotfix-4';
-import { showToast, formatNumber } from './utils.js?v=1.6.0-hour-pure-button-hotfix-4';
+import { getBudgets, getCalendarRows, saveSalaryEntriesBatch, getSalaryEntriesByAcademicYear, getSalaryEntriesByDateRange, getUnits } from './dataStore.js?v=1.6.0-ui-flow-hotfix-6';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-ui-flow-hotfix-6';
+import { showToast, formatNumber } from './utils.js?v=1.6.0-ui-flow-hotfix-6';
 import {
   getDistinctBudgetNames,
   getBudgetYearsForName,
@@ -14,7 +14,7 @@ import {
   validateYm,
   getAcademicYearFromYm,
   evaluateMonthRegistrationForGroup
-} from './budgetGroupUtils.js?v=1.6.0-hour-pure-button-hotfix-4';
+} from './budgetGroupUtils.js?v=1.6.0-ui-flow-hotfix-6';
 
 let containerEl = null;
 let salaryFilter = { budgetName: '', mode: 'academicYear', academicYear: '', startYm: '', endYm: '', queried: false };

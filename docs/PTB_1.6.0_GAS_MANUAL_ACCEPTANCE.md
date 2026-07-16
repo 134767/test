@@ -9,7 +9,7 @@
 `GitHub Pages / → 靜態說明頁，不啟動 App`
 
 1. 建立正式 Sheet 的測試複本並另建備份；確認全程未使用正式 Sheet。
-2. 在正確 Apps Script 專案設定 `PTB_SPREADSHEET_ID`（匿名測試 Sheet 複本）、`PTB_GITHUB_PAGES_BASE_URL`、`PTB_APP_VERSION=1.6.0`、`PTB_STATIC_ASSET_VERSION=1.6.0-calendar-wage-hotfix-1`、`PTB_WRITE_MODE=enabled`、`PTB_TEST_MODE=enabled`；不得把 ID 寫入 source 或 log。
+2. 在正確 Apps Script 專案設定 `PTB_SPREADSHEET_ID`（匿名測試 Sheet 複本）、`PTB_GITHUB_PAGES_BASE_URL`、`PTB_APP_VERSION=1.6.0`、`PTB_STATIC_ASSET_VERSION=1.6.0-ui-flow-hotfix-6`、`PTB_WRITE_MODE=enabled`、`PTB_TEST_MODE=enabled`；不得把 ID 寫入 source 或 log。
 3. 執行 `inspectPtb160Schema` 並保存報告；若 `03_hour_settings` 仍含 `hourlyWage`，確認報告為 `migrationRequired: true` 且 deprecated column 為 `hourlyWage`。
 4. 本次 source handoff 不執行 migration。另行核准後，只能在匿名測試 Sheet 複本執行 `migratePtb160Schema`；plan 必須先確認 Calendar source ID 存在且唯一，並與來源 Hour Setting 的 academic year、unit code、schedule type 一致。已有正時薪也不得略過此 gate；任何 blocker 都必須在 no-op return、備份及寫入前拒絕，且不得自動修復來源關係。通過後才確認已建立 `03_hour_settings`、`05_calendar_rows` 隱藏備份，所有 calendar rows 均有正時薪，且再次 inspect/verify 通過。不得對正式 Sheet 執行。
 5. 確認 Pages 根頁只顯示靜態說明、`/local.html` 在公開 host 顯示 localhost-only 警告，且 CSS/JS asset HTTP 200；部署僅授權帳號可用的測試 GAS Web App。

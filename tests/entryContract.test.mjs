@@ -33,7 +33,7 @@ test('local entry declares the localStorage runtime and versioned app asset', ()
 
 test('local entry guard runs before dynamic app import', () => {
   const guard = local.indexOf("allowedHosts.includes(location.hostname)");
-  const load = local.indexOf("import('./js/app.js?v=1.6.0-hour-pure-button-hotfix-4')");
+  const load = local.indexOf("import('./js/app.js?v=1.6.0-ui-flow-hotfix-6')");
   assert.ok(guard >= 0 && load > guard);
   assert.match(local, /\['localhost', '127\.0\.0\.1', '::1'\]/);
   assert.match(local, /Local Runtime 僅允許從本機 localhost 啟動/);
@@ -48,10 +48,16 @@ test('all local browser runtime checks open local.html', () => {
   browserTools.forEach(source => assert.match(source, /BASE = "http:\/\/127\.0\.0\.1:5500\/local\.html"/));
 });
 
-test('legacy 1.6.0 asset query is fully replaced by the pure button hotfix token', () => {
+test('all active asset cachebusters use the UI flow hotfix token', () => {
   const repoRoot = path.resolve(import.meta.dirname, '..');
   const roots = ['js', 'gas'];
   const files = roots.flatMap(dir => fs.readdirSync(path.join(repoRoot, dir)).filter(name => /\.(js|gs|html)$/.test(name)).map(name => path.join(repoRoot, dir, name))).concat(path.join(repoRoot, 'local.html'));
-  files.forEach(file => assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /\?v=1\.6\.0(?=['"]|$)/, file));
-  assert.match(local, /1\.6\.0-hour-pure-button-hotfix-4/);
+  files.forEach(file => {
+    const source = fs.readFileSync(file, 'utf8');
+    assert.doesNotMatch(source, /\?v=1\.6\.0(?=['"]|$)/, file);
+    for (const match of source.matchAll(/\?v=(1\.6\.0-[A-Za-z0-9._-]+)/g)) {
+      assert.equal(match[1], '1.6.0-ui-flow-hotfix-6', file);
+    }
+  });
+  assert.match(local, /1\.6\.0-ui-flow-hotfix-6/);
 });

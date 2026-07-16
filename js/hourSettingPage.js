@@ -11,20 +11,20 @@ import {
   saveScheduleType,
   deleteScheduleType,
   isScheduleTypeUsed
-} from './dataStore.js?v=1.6.0-hour-pure-button-hotfix-4';
-import { formatNumber, showToast, formatTimeRange, getWeekdaysArray, arrayToWeekdays, renderPagination } from './utils.js?v=1.6.0-hour-pure-button-hotfix-4';
+} from './dataStore.js?v=1.6.0-ui-flow-hotfix-6';
+import { formatNumber, showToast, formatTimeRange, getWeekdaysArray, arrayToWeekdays, renderPagination } from './utils.js?v=1.6.0-ui-flow-hotfix-6';
 import {
   buildHourSettingDuplicateKey,
   getUniqueBudgetAcademicYears,
   planBatchHourCopy
-} from './hourBatchUtils.js?v=1.6.0-hour-pure-button-hotfix-4';
+} from './hourBatchUtils.js?v=1.6.0-ui-flow-hotfix-6';
 import {
   getValidBudgetsForYear,
   findBudgetsByYearAndUnit,
   budgetOptionValue,
   findBudgetByOptionValue
-} from './hourBudgetScopeUtils.js?v=1.6.0-hour-pure-button-hotfix-4';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-hour-pure-button-hotfix-4';
+} from './hourBudgetScopeUtils.js?v=1.6.0-ui-flow-hotfix-6';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-ui-flow-hotfix-6';
 
 export {
   buildHourSettingDuplicateKey,
@@ -32,7 +32,7 @@ export {
   getValidBudgetUnitCodesForYear,
   isUnitInTargetBudgetScope,
   planBatchHourCopy
-} from './hourBatchUtils.js?v=1.6.0-hour-pure-button-hotfix-4';
+} from './hourBatchUtils.js?v=1.6.0-ui-flow-hotfix-6';
 
 export {
   getValidBudgetsForYear,
@@ -40,7 +40,7 @@ export {
   resolveBudgetForNameAndYear,
   getDistinctValidBudgetNames,
   filterCalendarRowsByBudgetScope
-} from './hourBudgetScopeUtils.js?v=1.6.0-hour-pure-button-hotfix-4';
+} from './hourBudgetScopeUtils.js?v=1.6.0-ui-flow-hotfix-6';
 
 let containerEl = null;
 let currentEditingId = null;

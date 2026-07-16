@@ -23,10 +23,10 @@ function replaceBudgetTerminology(root) {
 
   setFieldLabel(root, '#hour-budget-group', '預算單位');
   setFieldLabel(root, '#salary-budget-name', '預算單位');
-  setFieldLabel(root, '#forecast-budget-group', '預算單位');
   setFieldLabel(root, '#cal-filter-budget-group', '預算單位');
 
   root.querySelectorAll('option[value=""]').forEach(option => {
+    if (option.closest('#page-differenceForecast')) return;
     const text = option.textContent.trim();
     if (text === '請選擇群組' || text === '請選擇預算群組') {
       option.textContent = '請選擇預算單位';
@@ -42,6 +42,7 @@ function replaceBudgetTerminology(root) {
   textNodes.forEach(node => {
     const parent = node.parentElement;
     if (!parent) return;
+    if (parent.closest('#page-differenceForecast')) return;
     if (parent.closest('tbody')) return;
     if (parent.matches('option') && parent.value) return;
 

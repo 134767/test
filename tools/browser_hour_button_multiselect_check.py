@@ -121,7 +121,7 @@ with sync_playwright() as p:
     page.evaluate("""async () => {
       const loading=document.createElement('p');loading.id='gas-loading';loading.textContent='資料載入中…';
       document.querySelector('#main-content').prepend(loading);
-      const app=await import('/js/app.js?v=1.6.0-hour-pure-button-hotfix-4');await app.bootstrap();
+      const app=await import('/js/app.js?v=1.6.0-ui-flow-hotfix-6');await app.bootstrap();
     }""")
     out["checks"]["gas_loading_removed"] = page.locator("#gas-loading").count() == 0
     out["checks"]["no_duplicate_tabs_pages"] = page.locator("#tab-bar .tab-btn").count() == 6 and page.locator("#main-content .page-container").count() == 6
@@ -133,7 +133,7 @@ with sync_playwright() as p:
       let failure;
       const runner={withSuccessHandler(){return runner},withFailureHandler(fn){failure=fn;return runner},runServerFunction(){failure(new Error('forced bootstrap failure'))}};
       window.google={script:{run:runner}};
-      const app=await import('/js/app.js?v=1.6.0-hour-pure-button-hotfix-4');
+      const app=await import('/js/app.js?v=1.6.0-ui-flow-hotfix-6');
       await app.bootstrap();
     }""")
     out["checks"]["bootstrap_failure_visible"] = failure_page.locator("#main-content [role='alert'] h2", has_text="資料庫載入失敗").count() == 1

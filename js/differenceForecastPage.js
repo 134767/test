@@ -12,9 +12,9 @@ import {
   saveForecastEvaluation,
   deleteForecastEvaluation,
   generateForecastEvaluationId
-} from './dataStore.js?v=1.6.0-hour-pure-button-hotfix-4';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-hour-pure-button-hotfix-4';
-import { formatNumber, showToast, escapeHtml } from './utils.js?v=1.6.0-hour-pure-button-hotfix-4';
+} from './dataStore.js?v=1.6.0-ui-flow-hotfix-6';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-ui-flow-hotfix-6';
+import { formatNumber, showToast, escapeHtml } from './utils.js?v=1.6.0-ui-flow-hotfix-6';
 import {
   validateRocAcademicYear,
   getDistinctBudgetNames,
@@ -22,7 +22,7 @@ import {
   normalizeBudgetUnitCodes,
   sumBudgetAmounts,
   buildBudgetScope
-} from './budgetGroupUtils.js?v=1.6.0-hour-pure-button-hotfix-4';
+} from './budgetGroupUtils.js?v=1.6.0-ui-flow-hotfix-6';
 
 // ===== 模組狀態 =====
 let containerEl = null;
