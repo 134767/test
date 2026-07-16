@@ -1,0 +1,154 @@
+/* PTB 1.6.0：預算與單位整合頁 */
+
+.ptb-budget-unit-header .toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ptb-budget-unit-query-panel {
+  margin-bottom: 16px;
+}
+
+.ptb-budget-unit-query-panel .query-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.ptb-budget-unit-query-panel .query-field {
+  flex: 1 1 300px;
+  max-width: 520px;
+}
+
+.ptb-budget-unit-query-panel .query-actions {
+  flex: 0 0 auto;
+}
+
+.ptb-budget-unit-card {
+  margin-top: 18px;
+  border: 1px solid #dadce0;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(60,64,67,.08);
+  overflow: hidden;
+}
+
+.ptb-budget-unit-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 15px 16px;
+  border-bottom: 1px solid #e7e9ec;
+  background: #f8fafd;
+}
+
+.ptb-budget-unit-card-header h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.ptb-budget-unit-card-header p {
+  margin: 4px 0 0;
+  color: #5f6368;
+  font-size: 12px;
+}
+
+.ptb-budget-unit-card .table-wrapper {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.ptb-budget-unit-card .data-table {
+  margin: 0;
+}
+
+.ptb-budget-unit-card .data-table td.numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.ptb-budget-unit-empty {
+  padding: 36px 18px;
+  color: #6b7280;
+  text-align: center;
+}
+
+.ptb-budget-unit-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-top: 1px solid #e7e9ec;
+  color: #5f6368;
+  font-size: 13px;
+}
+
+.ptb-budget-unit-pagination button {
+  min-width: 78px;
+}
+
+.ptb-unit-color-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 52px;
+  padding: 3px 8px;
+  border: 1px solid #dadce0;
+  border-radius: 999px;
+  background: #fff;
+  font-size: 12px;
+}
+
+.ptb-unit-color-chip::before {
+  content: '';
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #6b7280;
+}
+
+.ptb-unit-color-chip.unit-color-blue::before { background: #0d6efd; }
+.ptb-unit-color-chip.unit-color-green::before { background: #198754; }
+.ptb-unit-color-chip.unit-color-orange::before { background: #fd7e14; }
+.ptb-unit-color-chip.unit-color-purple::before { background: #6f42c1; }
+.ptb-unit-color-chip.unit-color-red::before { background: #dc3545; }
+.ptb-unit-color-chip.unit-color-gray::before { background: #6c757d; }
+
+.ptb-budget-unit-source > :not(.modal) {
+  display: none !important;
+}
+
+.ptb-budget-unit-source {
+  width: 0;
+  height: 0;
+  overflow: visible;
+}
+
+#integrated-budget-warning {
+  margin: 12px 16px 0;
+}
+
+@media (max-width: 760px) {
+  .ptb-budget-unit-card-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ptb-budget-unit-card-header > button {
+    width: 100%;
+  }
+
+  .ptb-budget-unit-query-panel .query-actions,
+  .ptb-budget-unit-query-panel .query-actions button {
+    width: 100%;
+  }
+
+  .ptb-budget-unit-pagination {
+    flex-wrap: wrap;
+  }
+}
