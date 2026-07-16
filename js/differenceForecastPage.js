@@ -11,9 +11,9 @@ import {
   getForecastEvaluations,
   saveForecastEvaluation,
   deleteForecastEvaluation
-} from './dataStore.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
-import { formatNumber, showToast, escapeHtml } from './utils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
+} from './dataStore.js?v=1.6.0-salary-summary-cards-hotfix-12';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-salary-summary-cards-hotfix-12';
+import { formatNumber, showToast, escapeHtml } from './utils.js?v=1.6.0-salary-summary-cards-hotfix-12';
 import {
   validateRocAcademicYear,
   getDistinctBudgetNames,
@@ -21,8 +21,8 @@ import {
   normalizeBudgetUnitCodes,
   sumBudgetAmounts,
   buildBudgetScope
-} from './budgetGroupUtils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
-import { normalizeForecastEvaluationRecord, validateForecastEvaluationDraft } from './forecastEvaluationUtils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
+} from './budgetGroupUtils.js?v=1.6.0-salary-summary-cards-hotfix-12';
+import { normalizeForecastEvaluationRecord, validateForecastEvaluationDraft } from './forecastEvaluationUtils.js?v=1.6.0-salary-summary-cards-hotfix-12';
 
 // ===== 模組狀態 =====
 let containerEl = null;

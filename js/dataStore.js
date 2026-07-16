@@ -477,10 +477,10 @@ function _snapshotCollections() {
 
 
 // 初始化：localStorage 模式沿用 seedData；GAS Shell 模式啟動時一次載入 Sheet 到前端 cache。
-import { beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
-import { loadCsvDb, exportCsvDbSnapshot } from './csvDb.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
-import { normalizeBudgetRecord, normalizeBudgetUnitCodes } from './budgetGroupUtils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
-import { normalizeForecastEvaluationRecord, normalizeForecastEvaluations } from './forecastEvaluationUtils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
+import { beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-salary-summary-cards-hotfix-12';
+import { loadCsvDb, exportCsvDbSnapshot } from './csvDb.js?v=1.6.0-salary-summary-cards-hotfix-12';
+import { normalizeBudgetRecord, normalizeBudgetUnitCodes } from './budgetGroupUtils.js?v=1.6.0-salary-summary-cards-hotfix-12';
+import { normalizeForecastEvaluationRecord, normalizeForecastEvaluations } from './forecastEvaluationUtils.js?v=1.6.0-salary-summary-cards-hotfix-12';
 import {
   seedBudgets,
   seedUnits,
@@ -488,7 +488,7 @@ import {
   seedCalendarPeriods,
   seedCalendarRows,
   seedCalendarHolidays
-} from './seedData.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
+} from './seedData.js?v=1.6.0-salary-summary-cards-hotfix-12';
 
 export async function initDataStore() {
   _dataMode = _detectDataMode();

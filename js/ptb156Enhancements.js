@@ -10,10 +10,10 @@ import {
   deleteHolidayName,
   isHolidayNameUsed,
   ensureHolidayNamesFromExistingCalendarHolidays
-} from './dataStore.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
-import { renderCalendarTable } from './calendarPage.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
-import { showToast, getDatesInRange, formatDateForDisplay } from './utils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
+} from './dataStore.js?v=1.6.0-salary-summary-cards-hotfix-12';
+import { renderCalendarTable } from './calendarPage.js?v=1.6.0-salary-summary-cards-hotfix-12';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-salary-summary-cards-hotfix-12';
+import { showToast, getDatesInRange, formatDateForDisplay } from './utils.js?v=1.6.0-salary-summary-cards-hotfix-12';
 
 let holidayPage = 'settings';
 let holidayRecordPage = 1;

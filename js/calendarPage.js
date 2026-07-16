@@ -24,8 +24,8 @@ import {
   deleteHolidayName,
   isHolidayNameUsed,
   ensureHolidayNamesFromExistingCalendarHolidays
-} from './dataStore.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
+} from './dataStore.js?v=1.6.0-salary-summary-cards-hotfix-12';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-salary-summary-cards-hotfix-12';
 import {
   showToast,
   isValidDate,
@@ -38,7 +38,7 @@ import {
   bindDatePickerField,
   inferAcademicYearFromDate,
   renderPagination
-} from './utils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
+} from './utils.js?v=1.6.0-salary-summary-cards-hotfix-12';
 import {
   getDistinctValidBudgetNames,
   getYearsForBudgetName,
@@ -46,7 +46,7 @@ import {
   filterCalendarRowsByBudgetScope,
   getAllowedUnitCodesForBudgetNameYear,
   getDuplicateBudgetNameYears
-} from './hourBudgetScopeUtils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
+} from './hourBudgetScopeUtils.js?v=1.6.0-salary-summary-cards-hotfix-12';
 import {
   CALENDAR_WAGE_YEAR_WARNING,
   buildCalendarRowFromHourSetting,
@@ -54,7 +54,7 @@ import {
   getCalendarWagePreviewText,
   validateCalendarIntervalRange,
   validateIntervalHourlyWage
-} from './calendarWageUtils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
+} from './calendarWageUtils.js?v=1.6.0-salary-summary-cards-hotfix-12';
 
 let containerEl = null;
 

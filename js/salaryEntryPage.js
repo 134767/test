@@ -1,6 +1,6 @@
-import { getBudgets, getCalendarRows, saveSalaryEntriesBatch, getSalaryEntriesByAcademicYear, getSalaryEntriesByDateRange, getUnits } from './dataStore.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
-import { showToast, formatNumber } from './utils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
+import { getBudgets, getCalendarRows, saveSalaryEntriesBatch, getSalaryEntriesByAcademicYear, getSalaryEntriesByDateRange, getUnits } from './dataStore.js?v=1.6.0-salary-summary-cards-hotfix-12';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-salary-summary-cards-hotfix-12';
+import { showToast, formatNumber } from './utils.js?v=1.6.0-salary-summary-cards-hotfix-12';
 import {
   getDistinctBudgetNames,
   getBudgetYearsForName,
@@ -14,8 +14,8 @@ import {
   validateYm,
   getAcademicYearFromYm,
   evaluateMonthRegistrationForGroup
-} from './budgetGroupUtils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
-import { sortUnitCodesByUnitSettings, calculateMonthlyActualTotal } from './salaryMonthUtils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
+} from './budgetGroupUtils.js?v=1.6.0-salary-summary-cards-hotfix-12';
+import { sortUnitCodesByUnitSettings, calculateMonthlyActualTotal } from './salaryMonthUtils.js?v=1.6.0-salary-summary-cards-hotfix-12';
 
 let containerEl = null;
 let salaryFilter = { budgetName: '', mode: 'academicYear', academicYear: '', startYm: '', endYm: '', queried: false };
@@ -95,7 +95,7 @@ export function initSalaryEntryPage(container) {
   containerEl = container;
   container.innerHTML = `<div class="page-header"><h2>時薪登記</h2><div class="toolbar"><button id="btn-open-salary-modal" class="btn-primary" disabled>登記薪資</button></div></div>
   <div class="query-panel salary-query-panel"><div class="query-row"><div class="query-field"><label>預算群組</label><select id="salary-budget-name"><option value="">請選擇群組</option></select></div><div class="query-field salary-secondary"><label>查詢模式</label><select id="salary-filter-mode"><option value="academicYear">依學年度</option><option value="dateRange">依日期區間</option></select></div><div class="query-field salary-secondary" id="salary-year-group"><label>學年度</label><select id="salary-filter-year"></select></div><div class="query-field salary-secondary" id="salary-date-range-group" style="display:none"><label>起始年月</label><input type="month" id="salary-filter-start"></div><div class="query-field salary-secondary" id="salary-date-range-group2" style="display:none"><label>結束年月</label><input type="month" id="salary-filter-end"></div><div class="query-actions salary-secondary"><button id="salary-filter-query" class="btn-primary">查詢</button></div></div></div>
-  <div id="salary-results" class="salary-results hidden"><div id="salary-summary" style="margin:12px 0;"></div><h3>單位摘要</h3><div class="table-wrapper"><table class="data-table summary-table" id="salary-unit-summary"><thead><tr><th>單位</th><th style="text-align:right">預估薪資</th><th style="text-align:right">實際核銷</th><th style="text-align:right">差額</th></tr></thead><tbody id="salary-unit-summary-tbody"></tbody></table></div><h3>月份明細</h3><div class="table-wrapper"><table class="data-table salary-entry-table salary-month-detail-table salary-month-transpose-table" id="salary-month-table"><thead id="salary-month-thead"></thead><tbody id="salary-month-tbody"></tbody></table></div></div>
+  <div id="salary-results" class="salary-results hidden"><div id="salary-summary"></div><h3>單位摘要</h3><div class="table-wrapper"><table class="data-table summary-table" id="salary-unit-summary"><thead><tr><th>單位</th><th style="text-align:right">預估薪資</th><th style="text-align:right">實際核銷</th><th style="text-align:right">差額</th></tr></thead><tbody id="salary-unit-summary-tbody"></tbody></table></div><h3>月份明細</h3><div class="table-wrapper"><table class="data-table salary-entry-table salary-month-detail-table salary-month-transpose-table" id="salary-month-table"><thead id="salary-month-thead"></thead><tbody id="salary-month-tbody"></tbody></table></div></div>
   <div id="salary-modal" class="modal"><div class="modal-content modal-wide"><div class="modal-header"><h3>登記薪資</h3></div><div class="modal-body"><div class="form-row"><div class="form-group"><label>學年度 <span class="required">*</span></label><select id="sal-modal-ay"></select></div><div class="form-group"><label>年份 <span class="required">*</span></label><select id="sal-modal-year"></select></div><div class="form-group"><label>月份 <span class="required">*</span></label><select id="sal-modal-month"></select></div></div><div class="table-wrapper"><table class="data-table" id="sal-unit-table"><thead><tr><th>單位</th><th class="numeric">實際薪資</th><th>備註</th></tr></thead><tbody id="sal-unit-tbody"></tbody></table></div></div><div class="modal-footer"><button id="sal-modal-save" class="btn-primary">提交</button><button id="sal-modal-cancel" class="btn-secondary">取消</button></div></div></div>`;
   bind();
   populateBudgetNames();
@@ -231,25 +231,65 @@ export function renderSalaryEntryPage() {
   results.classList.remove('hidden');
 }
 
+function getSalarySummaryStateClass(value) {
+  return Number(value) < 0
+    ? 'salary-summary-item--negative'
+    : 'salary-summary-item--positive';
+}
+
 function renderSummary(scope, rows, entries) {
   const totalBudget = sumBudgetAmounts(scope.budgets);
   const estimate = (rows || []).reduce((sum, row) => sum + (Number(row.hours) || 0) * (Number(row.hourlyWage) || 0), 0);
   const actual = (entries || []).reduce((sum, entry) => sum + (Number(entry.actualAmount) || 0), 0);
+  const difference = estimate - actual;
   const remain = totalBudget - actual;
-  const bits = [`群組：${escapeHtml(salaryFilter.budgetName)}`];
+  const queryRangeHtml = salaryFilter.mode === 'academicYear'
+    ? `
+      <div class="salary-summary-query-item">
+        <span class="salary-summary-query-label">目前學年度</span>
+        <span class="salary-summary-query-value">${escapeHtml(salaryFilter.academicYear)}</span>
+      </div>
+    `
+    : `
+      <div class="salary-summary-query-item">
+        <span class="salary-summary-query-label">日期區間</span>
+        <span class="salary-summary-query-value">${escapeHtml(salaryFilter.startYm)} ～ ${escapeHtml(salaryFilter.endYm)}</span>
+      </div>
+    `;
 
-  if (salaryFilter.mode === 'academicYear') bits.push(`目前學年度：${salaryFilter.academicYear}`);
-  else bits.push(`日期區間：${salaryFilter.startYm} ~ ${salaryFilter.endYm}`);
-
-  bits.push(
-    `總預算：${formatNumber(totalBudget)}`,
-    `預估薪資合計：${formatNumber(estimate)}`,
-    `實際核銷合計：${formatNumber(actual)}`,
-    `差額（預估-核銷）：${formatNumber(estimate - actual)}`,
-    `剩餘預算（總預算-實際核銷）：${formatNumber(remain)}`
-  );
-
-  containerEl.querySelector('#salary-summary').innerHTML = `<div class="summary-box">${bits.map(x => `<div class="${(x.includes('差額') && (estimate - actual) < 0) || (x.includes('剩餘預算') && remain < 0) ? 'negative' : ''}">${x}</div>`).join('')}</div>`;
+  containerEl.querySelector('#salary-summary').innerHTML = `
+    <section class="salary-summary-box" aria-label="時薪登記查詢摘要">
+      <div class="salary-summary-query-info">
+        <div class="salary-summary-query-item">
+          <span class="salary-summary-query-label">群組</span>
+          <span class="salary-summary-query-value">${escapeHtml(salaryFilter.budgetName)}</span>
+        </div>
+        ${queryRangeHtml}
+      </div>
+      <div class="salary-summary-grid">
+        <div class="salary-summary-item salary-summary-item--primary">
+          <div class="salary-summary-label">總預算</div>
+          <div class="salary-summary-value">${formatNumber(totalBudget)}</div>
+        </div>
+        <div class="salary-summary-item">
+          <div class="salary-summary-label">預估薪資合計</div>
+          <div class="salary-summary-value">${formatNumber(estimate)}</div>
+        </div>
+        <div class="salary-summary-item">
+          <div class="salary-summary-label">實際核銷合計</div>
+          <div class="salary-summary-value">${formatNumber(actual)}</div>
+        </div>
+        <div class="salary-summary-item ${getSalarySummaryStateClass(difference)}">
+          <div class="salary-summary-label">差額（預估－核銷）</div>
+          <div class="salary-summary-value">${formatNumber(difference)}</div>
+        </div>
+        <div class="salary-summary-item ${getSalarySummaryStateClass(remain)}">
+          <div class="salary-summary-label">剩餘預算（總預算－實際核銷）</div>
+          <div class="salary-summary-value">${formatNumber(remain)}</div>
+        </div>
+      </div>
+    </section>
+  `;
 }
 
 function renderUnitSummary(scope, rows, entries) {

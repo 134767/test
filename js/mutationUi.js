@@ -1,4 +1,4 @@
-import { beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
+import { beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-salary-summary-cards-hotfix-12';
 
 const active = new WeakSet();
 

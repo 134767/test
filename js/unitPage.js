@@ -5,9 +5,9 @@ import {
   deleteUnits,
   isUnitUsed,
   moveUnitOrder
-} from './dataStore.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
-import { showToast } from './utils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
+} from './dataStore.js?v=1.6.0-salary-summary-cards-hotfix-12';
+import { showToast } from './utils.js?v=1.6.0-salary-summary-cards-hotfix-12';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-salary-summary-cards-hotfix-12';
 
 let containerEl = null;
 let currentEditingId = null;

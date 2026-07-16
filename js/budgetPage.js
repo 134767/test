@@ -1,9 +1,9 @@
 // js/budgetPage.js
-import { getBudgets, saveBudget, deleteBudgets, getUnits } from './dataStore.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
-import { formatNumber, showToast } from './utils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
-import { normalizeBudgetRecord, normalizeBudgetUnitCodes, validateRocAcademicYear } from './budgetGroupUtils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
-import { diagnoseBudgetDuplicateGroups } from './hourBudgetScopeUtils.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
-import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-forecast-calendar-workflow-hotfix-11';
+import { getBudgets, saveBudget, deleteBudgets, getUnits } from './dataStore.js?v=1.6.0-salary-summary-cards-hotfix-12';
+import { formatNumber, showToast } from './utils.js?v=1.6.0-salary-summary-cards-hotfix-12';
+import { normalizeBudgetRecord, normalizeBudgetUnitCodes, validateRocAcademicYear } from './budgetGroupUtils.js?v=1.6.0-salary-summary-cards-hotfix-12';
+import { diagnoseBudgetDuplicateGroups } from './hourBudgetScopeUtils.js?v=1.6.0-salary-summary-cards-hotfix-12';
+import { runWithMutationUiLock } from './mutationUi.js?v=1.6.0-salary-summary-cards-hotfix-12';
 
 let currentEditingId = null;
 let containerEl = null;

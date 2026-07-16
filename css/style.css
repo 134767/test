@@ -1599,7 +1599,115 @@ body.db-is-busy button[data-db-locked-by-feedback="true"] {
 .summary-total-row { font-weight: 700; border-top: 2px solid #495057; }
 .selected-budget-row { background: #fff8e1; font-weight: 600; }
 .negative { color: #dc3545 !important; }
+.salary-summary-box {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.salary-summary-query-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin-bottom: 10px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.salary-summary-query-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.salary-summary-query-label {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.salary-summary-query-value {
+  color: var(--text);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.salary-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.salary-summary-item {
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--panel-soft);
+}
+
+.salary-summary-label {
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.salary-summary-value {
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.salary-summary-item--primary {
+  border-left: 4px solid var(--primary);
+}
+
+.salary-summary-item--positive {
+  border-left: 4px solid #198754;
+}
+
+.salary-summary-item--positive .salary-summary-value {
+  color: #198754;
+}
+
+.salary-summary-item--negative {
+  border-left: 4px solid var(--danger);
+}
+
+.salary-summary-item--negative .salary-summary-value {
+  color: var(--danger);
+}
+
 .salary-query-panel .query-row { flex-wrap: wrap; }
+@media (max-width: 1000px) {
+  .salary-summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .salary-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 440px) {
+  .salary-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .salary-summary-value {
+    font-size: 17px;
+  }
+}
+
 @media (max-width: 640px) {
   .salary-query-panel .query-field,
   .salary-query-panel .query-actions { width: 100%; min-width: 0; }
