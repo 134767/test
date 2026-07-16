@@ -88,11 +88,26 @@ function enhanceCalendarBudgetFlow(root) {
   });
 }
 
+function ensureCalendarWeekVerticalStyles() {
+  const id = 'ptb-calendar-google-week-vertical-css';
+  if (document.getElementById(id)) return;
+
+  const link = document.createElement('link');
+  link.id = id;
+  link.rel = 'stylesheet';
+  link.href = new URL(
+    '../css/calendarGoogleWeekVertical.css?v=1.6.0-calendar-google-views-hotfix-2',
+    import.meta.url
+  ).href;
+  document.head.appendChild(link);
+}
+
 function requestCalendarGoogleViews(root) {
   if (!root || root.dataset.calendarGoogleViewsRequested === 'true') return;
   if (!root.querySelector('#calendar-table-wrap')) return;
 
   root.dataset.calendarGoogleViewsRequested = 'true';
+  ensureCalendarWeekVerticalStyles();
   calendarGoogleViewsPromise ||= import(
     './calendarGoogleViews.js?v=1.6.0-calendar-google-views-hotfix-1'
   );
