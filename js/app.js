@@ -5,8 +5,7 @@ import { installGasRuntimeCompatibility, formatGasRuntimeError } from './gasRunt
 import { initDataStore, getDataMode, exportLocalCsvDbSnapshot, resetLocalDataFromCsvDb, subscribeCollection } from './dataStore.js?v=1.6.0-salary-summary-cards-hotfix-12';
 import { installDbFeedback, beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0-salary-summary-cards-hotfix-12';
 import { AppState, setCurrentTab } from './state.js?v=1.6.0-salary-summary-cards-hotfix-12';
-import { initBudgetPage, renderBudgetTable } from './budgetPage.js?v=1.6.0-salary-summary-cards-hotfix-12';
-import { initUnitPage, renderUnitTable } from './unitPage.js?v=1.6.0-salary-summary-cards-hotfix-12';
+import { initBudgetUnitPage, refreshBudgetUnitPage } from './budgetUnitPage.js?v=1.6.0-budget-unit-integrated-hotfix-1';
 import { initHourSettingPage, renderHourTable } from './hourSettingPage.js?v=1.6.0-salary-summary-cards-hotfix-12';
 import { initCalendarPage, renderCalendarTable } from './calendarPage.js?v=1.6.0-salary-summary-cards-hotfix-12';
 import { initSalaryEntryPage, renderSalaryEntryPage } from './salaryEntryPage.js?v=1.6.0-salary-summary-cards-hotfix-12';
@@ -36,8 +35,7 @@ function initTabs() {
     { id: 'differenceForecast', label: '差額與預估' },
     { id: 'calendar', label: '行事曆' },
     { id: 'hour', label: '時數設定' },
-    { id: 'unit', label: '單位設定' },
-    { id: 'budget', label: '預算設定' }
+    { id: 'budgetUnit', label: '預算與單位' }
   ];
 
   tabs.forEach(tab => {
@@ -50,7 +48,7 @@ function initTabs() {
     tabButtons[tab.id] = btn;
   });
 
-  ['salaryEntry', 'differenceForecast', 'calendar', 'hour', 'unit', 'budget'].forEach(id => {
+  ['salaryEntry', 'differenceForecast', 'calendar', 'hour', 'budgetUnit'].forEach(id => {
     const div = document.createElement('div');
     div.id = `page-${id}`;
     div.className = 'page-container';
@@ -130,11 +128,8 @@ function applyHourFormSevenRowLayout(root) {
 
 function initPage(tabId, container) {
   switch (tabId) {
-    case 'budget':
-      initBudgetPage(container);
-      break;
-    case 'unit':
-      initUnitPage(container);
+    case 'budgetUnit':
+      initBudgetUnitPage(container);
       break;
     case 'hour':
       initHourSettingPage(container);
@@ -154,11 +149,8 @@ function initPage(tabId, container) {
 
 function refreshPage(tabId) {
   switch (tabId) {
-    case 'budget':
-      renderBudgetTable();
-      break;
-    case 'unit':
-      renderUnitTable();
+    case 'budgetUnit':
+      refreshBudgetUnitPage();
       break;
     case 'hour':
       renderHourTable();
