@@ -71,5 +71,5 @@ function withWriteLock_(ctx,fn){
   if(!lock.tryLock(30000)){addTiming_(ctx,'lockWaitMs',Date.now()-waitStarted);throw ptbError_('LOCK_TIMEOUT','寫入鎖逾時');}
   addTiming_(ctx,'lockWaitMs',Date.now()-waitStarted);
   var holdStarted=Date.now();
-  try{return fn(ctx);}finally{addTiming_(ctx,'lockHoldMs',Date.now()-holdStarted);lock.releaseLock();}
+  try{return fn(ctx);}finally{lock.releaseLock();addTiming_(ctx,'lockHoldMs',Date.now()-holdStarted);}
 }
