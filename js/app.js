@@ -204,7 +204,11 @@ function maybeActivateAuthenticatedRuntime() {
 }
 
 async function runWrite(job) {
-  const result = await sendBridgeRequest('WRITE_TIMESTAMP', job);
+  const result = await sendBridgeRequest('WRITE_TIMESTAMP', {
+    clientSequence: job.sequence,
+    clientClickedAtIso: job.clientClickedAtIso,
+    clientClickedAtMs: job.clientClickedAtMs
+  });
   state.completedWrites += 1;
   applyTimestampRecord(result.record);
   return result;
