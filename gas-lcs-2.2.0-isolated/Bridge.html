@@ -8,11 +8,22 @@
 <script>
   'use strict';
   const bootstrap = <?!= bridgeBootstrapJson ?>;
+  const allowedParentWindows = [];
+
+  (function captureAncestorWindows() {
+    let ancestor = window;
+    while (ancestor !== ancestor.parent) {
+      ancestor = ancestor.parent;
+      allowedParentWindows.push(ancestor);
+    }
+  })();
 
   function post(message) {
-    top.postMessage(Object.assign({
-      channel: bootstrap.bridgeChannel
-    }, message), bootstrap.allowedParentOrigin);
+    allowedParentWindows.forEach(function(ancestor) {
+      ancestor.postMessage(Object.assign({
+        channel: bootstrap.bridgeChannel
+      }, message), bootstrap.allowedParentOrigin);
+    });
   }
 
   function normalizeError(error) {
@@ -26,7 +37,7 @@
   }
 
   window.addEventListener('message', function(event) {
-    if (event.source !== top) return;
+    if (allowedParentWindows.indexOf(event.source) === -1) return;
     if (event.origin !== bootstrap.allowedParentOrigin) return;
 
     const request = event.data;

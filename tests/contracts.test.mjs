@@ -18,11 +18,13 @@ test('frontend caps concurrent google.script.run bridge requests at ten', async 
   assert.match(app, /state\.inFlight < config\.maxInFlight/);
 });
 
-test('bridge crosses the Apps Script host wrapper without trusting arbitrary responses', async () => {
+test('bridge crosses trusted wrapper ancestors without trusting arbitrary responses', async () => {
   const app = await read('js/app.js');
   const bridge = await read('gas-lcs-2.2.0-isolated/Bridge.html');
-  assert.match(bridge, /top\.postMessage/);
-  assert.match(bridge, /event\.source !== top/);
+  assert.match(bridge, /allowedParentWindows\.push\(ancestor\)/);
+  assert.match(bridge, /ancestor\.postMessage/);
+  assert.match(bridge, /allowedParentWindows\.indexOf\(event\.source\)/);
+  assert.match(bridge, /event\.origin !== bootstrap\.allowedParentOrigin/);
   assert.match(app, /googleusercontent/);
   assert.match(app, /event\.source !== state\.bridgeWindow/);
   assert.match(app, /event\.origin !== state\.bridgeOrigin/);
