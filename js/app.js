@@ -129,6 +129,11 @@ function sendBridgeRequest(action, payload = {}) {
 
 function handleBridgeMessage(event) {
   const message = event.data;
+  console.log('[LCS 2.2.0][BRIDGE_MESSAGE]', {
+    origin: event.origin,
+    kind: message?.kind || '',
+    channelMatched: message?.channel === config.bridgeChannel
+  });
   if (!message || message.channel !== config.bridgeChannel) return;
 
   if (message.kind === 'ready') {
