@@ -79,7 +79,7 @@ function logMetric(kind, payload) {
   const entry = { kind, capturedAtIso: new Date().toISOString(), ...payload };
   state.metrics.push(entry);
   if (state.metrics.length > 2000) state.metrics.splice(0, state.metrics.length - 2000);
-  console.log(`[LCS 2.2.0][${kind}]`, entry);
+  console.log(`[LCS 2.2.0][${kind}] ${JSON.stringify(entry)}`);
 }
 
 function createBridge() {
@@ -129,11 +129,11 @@ function sendBridgeRequest(action, payload = {}) {
 
 function handleBridgeMessage(event) {
   const message = event.data;
-  console.log('[LCS 2.2.0][BRIDGE_MESSAGE]', {
+  console.log(`[LCS 2.2.0][BRIDGE_MESSAGE] ${JSON.stringify({
     origin: event.origin,
     kind: message?.kind || '',
     channelMatched: message?.channel === config.bridgeChannel
-  });
+  })}`);
   if (!message || message.channel !== config.bridgeChannel) return;
 
   if (message.kind === 'ready') {
@@ -217,7 +217,10 @@ function pumpQueue() {
     runWrite(job)
       .catch(error => {
         state.failedWrites += 1;
-        console.error('[LCS 2.2.0][WRITE_TIMESTAMP]', { sequence: job.sequence, error });
+        console.error(`[LCS 2.2.0][WRITE_TIMESTAMP] ${JSON.stringify({
+          sequence: job.sequence,
+          error: { code: error.code || '', message: error.message || '', roundTripMs: error.roundTripMs || null }
+        })}`);
         if (error.code === 'TOKEN_EXPIRED' || error.code === 'TOKEN_INVALID') {
           handleAuthFailure(error);
         }
