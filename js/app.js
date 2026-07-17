@@ -5,6 +5,8 @@ const bridgeHost = document.getElementById('bridge-host');
 
 const state = {
   bridgeFrame: null,
+  bridgeWindow: null,
+  bridgeOrigin: '',
   bridgeReady: false,
   idToken: '',
   authorized: false,
@@ -94,10 +96,13 @@ function createBridge() {
   iframe.referrerPolicy = 'strict-origin-when-cross-origin';
   bridgeHost.replaceChildren(iframe);
   state.bridgeFrame = iframe;
+  state.bridgeWindow = null;
+  state.bridgeOrigin = '';
+  state.bridgeReady = false;
 }
 
 function sendBridgeRequest(action, payload = {}) {
-  if (!state.bridgeReady || !state.bridgeFrame?.contentWindow) {
+  if (!state.bridgeReady || !state.bridgeWindow || !state.bridgeOrigin) {
     return Promise.reject(new Error('GAS bridge is not ready.'));
   }
 
@@ -111,28 +116,32 @@ function sendBridgeRequest(action, payload = {}) {
     }, config.requestTimeoutMs);
 
     state.pending.set(requestId, { resolve, reject, timeout, startedAt, action });
-    state.bridgeFrame.contentWindow.postMessage({
+    state.bridgeWindow.postMessage({
       channel: config.bridgeChannel,
       kind: 'request',
       requestId,
       action,
       idToken: state.idToken,
       payload
-    }, '*');
+    }, state.bridgeOrigin);
   });
 }
 
 function handleBridgeMessage(event) {
-  if (event.source !== state.bridgeFrame?.contentWindow) return;
   const message = event.data;
   if (!message || message.channel !== config.bridgeChannel) return;
 
   if (message.kind === 'ready') {
+    if (!/^https:\/\/[a-z0-9-]+-script\.googleusercontent\.com$/.test(event.origin)) return;
+    if (!event.source || !state.bridgeFrame?.contentWindow) return;
+    state.bridgeWindow = event.source;
+    state.bridgeOrigin = event.origin;
     state.bridgeReady = true;
     maybeActivateAuthenticatedRuntime();
     return;
   }
 
+  if (event.source !== state.bridgeWindow || event.origin !== state.bridgeOrigin) return;
   if (message.kind !== 'response' || !message.requestId) return;
   const pending = state.pending.get(message.requestId);
   if (!pending) return;

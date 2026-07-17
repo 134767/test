@@ -18,6 +18,17 @@ test('frontend caps concurrent google.script.run bridge requests at ten', async 
   assert.match(app, /state\.inFlight < config\.maxInFlight/);
 });
 
+test('bridge crosses the Apps Script host wrapper without trusting arbitrary responses', async () => {
+  const app = await read('js/app.js');
+  const bridge = await read('gas-lcs-2.2.0-isolated/Bridge.html');
+  assert.match(bridge, /top\.postMessage/);
+  assert.match(bridge, /event\.source !== top/);
+  assert.match(app, /googleusercontent/);
+  assert.match(app, /event\.source !== state\.bridgeWindow/);
+  assert.match(app, /event\.origin !== state\.bridgeOrigin/);
+  assert.match(app, /state\.bridgeWindow\.postMessage/);
+});
+
 test('backend re-verifies token and allowlist before every action', async () => {
   const webApp = await read('gas-lcs-2.2.0-isolated/10_WebApp.gs');
   const auth = await read('gas-lcs-2.2.0-isolated/20_Auth.gs');

@@ -10,7 +10,7 @@
   const bootstrap = <?!= bridgeBootstrapJson ?>;
 
   function post(message) {
-    parent.postMessage(Object.assign({
+    top.postMessage(Object.assign({
       channel: bootstrap.bridgeChannel
     }, message), bootstrap.allowedParentOrigin);
   }
@@ -26,7 +26,7 @@
   }
 
   window.addEventListener('message', function(event) {
-    if (event.source !== parent) return;
+    if (event.source !== top) return;
     if (event.origin !== bootstrap.allowedParentOrigin) return;
 
     const request = event.data;
