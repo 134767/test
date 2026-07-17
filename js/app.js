@@ -1,160 +1,352 @@
-// js/app.js
-// 應用程式主控：初始化、tab 切換、各頁面載入
+const config = window.LCS_RUNTIME_CONFIG;
+const actionSlot = document.getElementById('action-slot');
+const timestampOutput = document.getElementById('timestamp-output');
+const bridgeHost = document.getElementById('bridge-host');
 
-import { initDataStore, getDataMode, exportLocalCsvDbSnapshot, resetLocalDataFromCsvDb } from './dataStore.js?v=1.6.0';
-import { installDbFeedback, beginDbOperation, endDbOperation } from './dbFeedback.js?v=1.6.0';
-import { AppState, setCurrentTab } from './state.js?v=1.6.0';
-import { initBudgetPage, renderBudgetTable } from './budgetPage.js?v=1.6.0';
-import { initUnitPage, renderUnitTable } from './unitPage.js?v=1.6.0';
-import { initHourSettingPage, renderHourTable } from './hourSettingPage.js?v=1.6.0';
-import { initCalendarPage, renderCalendarTable } from './calendarPage.js?v=1.6.0';
-import { initSalaryEntryPage, renderSalaryEntryPage } from './salaryEntryPage.js?v=1.6.0';
-import { initDifferenceForecastPage, renderDifferenceForecastPage } from './differenceForecastPage.js?v=1.6.0';
-import { installPtb156Enhancements } from './ptb156Enhancements.js?v=1.6.0';
-import { installPtb156HourFormPatch } from './ptb156HourFormPatch.js?v=1.6.0';
-import { installPtb156cUiSyncPatch } from './ptb156cUiSyncPatch.js?v=1.6.0';
+const state = {
+  bridgeFrame: null,
+  bridgeWindow: null,
+  bridgeOrigin: '',
+  bridgeReady: false,
+  idToken: '',
+  authorized: false,
+  queue: [],
+  inFlight: 0,
+  pending: new Map(),
+  sequence: 0,
+  signInRendered: false,
+  completedWrites: 0,
+  failedWrites: 0,
+  metrics: [],
+  latestDisplayedServerMs: 0
+};
 
-let mainContainer = null;
-let tabButtons = {};
-let pageContainers = {};
-let currentPageInit = {};
+function configurationIsValid() {
+  return Boolean(
+    config &&
+    /^https:\/\/\d+-script\.google\.com\/.+\/exec$|^https:\/\/script\.google\.com\/.+\/exec$/.test(config.gasWebAppUrl) &&
+    /^\d+-.+\.apps\.googleusercontent\.com$|^\d+\.apps\.googleusercontent\.com$/.test(config.googleClientId) &&
+    /^https:\/\//.test(config.parentOrigin) &&
+    Number.isInteger(config.maxInFlight) &&
+    config.maxInFlight >= 1 &&
+    config.maxInFlight <= 10
+  );
+}
 
-function initTabs() {
-  const tabBar = document.getElementById('tab-bar');
-  if (!tabBar) return;
+function makeButton(label, disabled = false) {
+  actionSlot.replaceChildren();
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.id = 'lcs-action-button';
+  button.className = 'action-button';
+  button.textContent = label;
+  button.disabled = disabled;
+  actionSlot.appendChild(button);
+  return button;
+}
 
-  const tabs = [
-    { id: 'salaryEntry', label: '時薪登記' },
-    { id: 'differenceForecast', label: '差額與預估' },
-    { id: 'calendar', label: '行事曆' },
-    { id: 'unit', label: '單位設定' },
-    { id: 'hour', label: '時數設定' },
-    { id: 'budget', label: '預算設定' }
-  ];
+function formatTimestamp(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value || '—');
+  return new Intl.DateTimeFormat('zh-TW', {
+    timeZone: 'Asia/Taipei',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    fractionalSecondDigits: 3,
+    hour12: false
+  }).format(date);
+}
 
-  tabs.forEach(tab => {
-    const btn = document.createElement('button');
-    btn.className = 'tab-btn';
-    btn.textContent = tab.label;
-    btn.dataset.tab = tab.id;
-    btn.addEventListener('click', () => switchTab(tab.id));
-    tabBar.appendChild(btn);
-    tabButtons[tab.id] = btn;
-  });
+function applyTimestampRecord(record) {
+  if (!record?.serverTimestampIso) return false;
+  const serverMs = Number(record.serverTimestampMs || Date.parse(record.serverTimestampIso));
+  if (!Number.isFinite(serverMs) || serverMs < state.latestDisplayedServerMs) return false;
+  state.latestDisplayedServerMs = serverMs;
+  timestampOutput.value = formatTimestamp(record.serverTimestampIso);
+  return true;
+}
 
-  mainContainer = document.getElementById('main-content');
-  ['salaryEntry', 'differenceForecast', 'calendar', 'unit', 'hour', 'budget'].forEach(id => {
-    const div = document.createElement('div');
-    div.id = `page-${id}`;
-    div.className = 'page-container';
-    div.style.display = 'none';
-    mainContainer.appendChild(div);
-    pageContainers[id] = div;
+function createRequestId() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function logMetric(kind, payload) {
+  const entry = { kind, capturedAtIso: new Date().toISOString(), ...payload };
+  state.metrics.push(entry);
+  if (state.metrics.length > 2000) state.metrics.splice(0, state.metrics.length - 2000);
+  console.log(`[LCS 2.2.0][${kind}] ${JSON.stringify(entry)}`);
+}
+
+function createBridge() {
+  const url = new URL(config.gasWebAppUrl);
+  url.searchParams.set('mode', 'bridge');
+  url.searchParams.set('parentOrigin', config.parentOrigin);
+  url.searchParams.set('channel', config.bridgeChannel);
+  url.searchParams.set('v', config.appVersion);
+
+  const iframe = document.createElement('iframe');
+  iframe.title = 'LCS GAS authentication bridge';
+  iframe.src = url.toString();
+  iframe.hidden = true;
+  iframe.referrerPolicy = 'strict-origin-when-cross-origin';
+  bridgeHost.replaceChildren(iframe);
+  state.bridgeFrame = iframe;
+  state.bridgeWindow = null;
+  state.bridgeOrigin = '';
+  state.bridgeReady = false;
+}
+
+function sendBridgeRequest(action, payload = {}) {
+  if (!state.bridgeReady || !state.bridgeWindow || !state.bridgeOrigin) {
+    return Promise.reject(new Error('GAS bridge is not ready.'));
+  }
+
+  const requestId = createRequestId();
+  const startedAt = performance.now();
+
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      state.pending.delete(requestId);
+      reject(new Error(`GAS bridge timeout after ${config.requestTimeoutMs}ms.`));
+    }, config.requestTimeoutMs);
+
+    state.pending.set(requestId, { resolve, reject, timeout, startedAt, action });
+    state.bridgeWindow.postMessage({
+      channel: config.bridgeChannel,
+      kind: 'request',
+      requestId,
+      action,
+      idToken: state.idToken,
+      payload
+    }, state.bridgeOrigin);
   });
 }
 
-function switchTab(tabId) {
-  Object.values(tabButtons).forEach(b => b.classList.remove('active'));
-  if (tabButtons[tabId]) tabButtons[tabId].classList.add('active');
-  Object.values(pageContainers).forEach(p => p.style.display = 'none');
+function handleBridgeMessage(event) {
+  const message = event.data;
+  console.log(`[LCS 2.2.0][BRIDGE_MESSAGE] ${JSON.stringify({
+    origin: event.origin,
+    kind: message?.kind || '',
+    channelMatched: message?.channel === config.bridgeChannel
+  })}`);
+  if (!message || message.channel !== config.bridgeChannel) return;
 
-  const target = pageContainers[tabId];
-  if (target) target.style.display = 'block';
-  setCurrentTab(tabId);
+  if (message.kind === 'ready') {
+    if (!/^https:\/\/[a-z0-9-]+-script\.googleusercontent\.com$/.test(event.origin)) return;
+    if (!event.source || !state.bridgeFrame?.contentWindow) return;
+    state.bridgeWindow = event.source;
+    state.bridgeOrigin = event.origin;
+    state.bridgeReady = true;
+    maybeActivateAuthenticatedRuntime();
+    return;
+  }
 
-  if (!currentPageInit[tabId]) {
-    initPage(tabId, target);
-    currentPageInit[tabId] = true;
+  if (event.source !== state.bridgeWindow || event.origin !== state.bridgeOrigin) return;
+  if (message.kind !== 'response' || !message.requestId) return;
+  const pending = state.pending.get(message.requestId);
+  if (!pending) return;
+
+  window.clearTimeout(pending.timeout);
+  state.pending.delete(message.requestId);
+  const roundTripMs = Math.round((performance.now() - pending.startedAt) * 10) / 10;
+
+  if (message.ok) {
+    logMetric(pending.action, { roundTripMs, ...message.result?.metrics });
+    pending.resolve({ ...message.result, clientRoundTripMs: roundTripMs });
   } else {
-    refreshPage(tabId);
+    const error = new Error(message.error?.message || 'GAS bridge request failed.');
+    error.code = message.error?.code || 'BRIDGE_ERROR';
+    error.roundTripMs = roundTripMs;
+    pending.reject(error);
   }
 }
 
-function initPage(tabId, container) {
-  switch (tabId) {
-    case 'budget':
-      initBudgetPage(container);
-      break;
-    case 'unit':
-      initUnitPage(container);
-      break;
-    case 'hour':
-      initHourSettingPage(container);
-      break;
-    case 'calendar':
-      initCalendarPage(container);
-      break;
-    case 'salaryEntry':
-      initSalaryEntryPage(container);
-      break;
-    case 'differenceForecast':
-      initDifferenceForecastPage(container);
-      break;
+function renderWriteButton() {
+  const button = makeButton('寫入目前時間');
+  button.addEventListener('click', () => {
+    const sequence = ++state.sequence;
+    state.queue.push({
+      sequence,
+      clientClickedAtIso: new Date().toISOString(),
+      clientClickedAtMs: Date.now()
+    });
+    pumpQueue();
+  });
+}
+
+async function initializeAuthorizedState() {
+  const result = await sendBridgeRequest('READ_LATEST');
+  state.authorized = true;
+  applyTimestampRecord(result.record);
+  renderWriteButton();
+}
+
+function handleAuthFailure(error) {
+  console.error('[LCS 2.2.0][AUTH]', error);
+  state.authorized = false;
+  state.idToken = '';
+  if (error.code === 'ACCESS_DENIED') {
+    makeButton('未授權帳號', true);
+    return;
+  }
+  renderGoogleSignIn();
+}
+
+function maybeActivateAuthenticatedRuntime() {
+  if (!state.bridgeReady || !state.idToken || state.authorized) return;
+  makeButton('正在驗證 GAS 權限', true);
+  initializeAuthorizedState().catch(handleAuthFailure);
+}
+
+async function runWrite(job) {
+  const result = await sendBridgeRequest('WRITE_TIMESTAMP', {
+    clientSequence: job.sequence,
+    clientClickedAtIso: job.clientClickedAtIso,
+    clientClickedAtMs: job.clientClickedAtMs
+  });
+  state.completedWrites += 1;
+  applyTimestampRecord(result.record);
+  return result;
+}
+
+function pumpQueue() {
+  while (state.authorized && state.inFlight < config.maxInFlight && state.queue.length > 0) {
+    const job = state.queue.shift();
+    state.inFlight += 1;
+    runWrite(job)
+      .catch(error => {
+        state.failedWrites += 1;
+        console.error(`[LCS 2.2.0][WRITE_TIMESTAMP] ${JSON.stringify({
+          sequence: job.sequence,
+          error: { code: error.code || '', message: error.message || '', roundTripMs: error.roundTripMs || null }
+        })}`);
+        if (error.code === 'TOKEN_EXPIRED' || error.code === 'TOKEN_INVALID') {
+          handleAuthFailure(error);
+        }
+      })
+      .finally(() => {
+        state.inFlight -= 1;
+        pumpQueue();
+      });
   }
 }
 
-function refreshPage(tabId) {
-  switch (tabId) {
-    case 'budget':
-      renderBudgetTable();
-      break;
-    case 'unit':
-      renderUnitTable();
-      break;
-    case 'hour':
-      renderHourTable();
-      break;
-    case 'calendar':
-      renderCalendarTable();
-      break;
-    case 'salaryEntry':
-      renderSalaryEntryPage();
-      break;
-    case 'differenceForecast':
-      renderDifferenceForecastPage();
-      break;
+function handleCredentialResponse(response) {
+  if (!response?.credential) {
+    renderGoogleSignIn();
+    return;
   }
+  state.idToken = response.credential;
+  state.authorized = false;
+  makeButton('正在連接 GAS', true);
+  maybeActivateAuthenticatedRuntime();
 }
 
-function setupGlobalClearButton() {
-  window.clearWorkStudyData = () => {
-    if (confirm('確定清除全部 localStorage 資料並重置？')) {
-      localStorage.clear();
-      location.reload();
+function renderGoogleSignIn() {
+  if (!window.google?.accounts?.id) {
+    window.setTimeout(renderGoogleSignIn, 100);
+    return;
+  }
+
+  actionSlot.replaceChildren();
+  state.signInRendered = true;
+  window.google.accounts.id.initialize({
+    client_id: config.googleClientId,
+    callback: handleCredentialResponse,
+    auto_select: true,
+    cancel_on_tap_outside: false,
+    itp_support: true,
+    use_fedcm_for_prompt: true
+  });
+  window.google.accounts.id.renderButton(actionSlot, {
+    type: 'standard',
+    theme: 'outline',
+    size: 'large',
+    text: 'signin_with',
+    shape: 'rectangular',
+    width: 320
+  });
+  window.google.accounts.id.prompt();
+}
+
+function percentile(values, fraction) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * fraction) - 1));
+  return sorted[index];
+}
+
+function installTestHarness() {
+  window.LCS_TEST_HARNESS = Object.freeze({
+    burst(count, intervalMs = 0) {
+      const total = Number(count);
+      if (!Number.isInteger(total) || total < 1 || total > 1000) {
+        throw new Error('burst count must be an integer between 1 and 1000.');
+      }
+      const button = document.getElementById('lcs-action-button');
+      if (!state.authorized || !button || button.disabled) {
+        throw new Error('Runtime is not authorized and ready.');
+      }
+      if (intervalMs <= 0) {
+        for (let index = 0; index < total; index += 1) button.click();
+        return;
+      }
+      let remaining = total;
+      const timer = window.setInterval(() => {
+        button.click();
+        remaining -= 1;
+        if (remaining <= 0) window.clearInterval(timer);
+      }, intervalMs);
+    },
+    async waitForIdle(timeoutMs = 180000) {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        if (state.queue.length === 0 && state.inFlight === 0 && state.pending.size === 0) return this.snapshot();
+        await new Promise(resolve => window.setTimeout(resolve, 100));
+      }
+      throw new Error('Timed out waiting for the stress queue to become idle.');
+    },
+    snapshot() {
+      const writeRoundTrips = state.metrics
+        .filter(entry => entry.kind === 'WRITE_TIMESTAMP' && Number.isFinite(entry.roundTripMs))
+        .map(entry => entry.roundTripMs);
+      return {
+        authorized: state.authorized,
+        queued: state.queue.length,
+        inFlight: state.inFlight,
+        pendingBridgeRequests: state.pending.size,
+        clickSequence: state.sequence,
+        completedWrites: state.completedWrites,
+        failedWrites: state.failedWrites,
+        writeRoundTripMs: {
+          count: writeRoundTrips.length,
+          p50: percentile(writeRoundTrips, 0.5),
+          p95: percentile(writeRoundTrips, 0.95),
+          max: writeRoundTrips.length ? Math.max(...writeRoundTrips) : null
+        }
+      };
     }
-  };
-
-  window.exportWorkStudyCsvDb = () => {
-    exportLocalCsvDbSnapshot();
-  };
-
-  window.reloadWorkStudyCsvDb = async () => {
-    if (!confirm('確定用 db/*.csv 重新載入本地測試 DB？目前 localStorage 暫存資料會被覆蓋。')) return;
-    await resetLocalDataFromCsvDb();
-    location.reload();
-  };
-
-  console.log(`%c[工讀系統] Data mode: ${getDataMode()}`, 'color:#2563eb');
-  console.log('%c[工讀系統] console 工具：clearWorkStudyData() 清除本機快取；exportWorkStudyCsvDb() 匯出 CSV 快照；reloadWorkStudyCsvDb() 從 db/*.csv 重新載入本地測試 DB。', 'color:#888');
+  });
 }
 
-export async function bootstrap() {
-  installDbFeedback();
-  installPtb156cUiSyncPatch();
+function bootstrap() {
+  window.addEventListener('message', handleBridgeMessage);
+  installTestHarness();
 
-  const initToken = beginDbOperation('資料載入中', { blocking: true });
-  try {
-    await initDataStore();
-    endDbOperation(initToken, { message: '資料載入完成' });
-  } catch (err) {
-    console.error('[DataStore] initialization failed', err);
-    endDbOperation(initToken, { error: true, message: '資料載入失敗，請重新整理後再試' });
-    throw err;
+  if (!configurationIsValid()) {
+    makeButton('設定未完成', true);
+    console.error('[LCS 2.2.0] Replace googleClientId and gasWebAppUrl in js/runtime-config.js.');
+    return;
   }
 
-  initTabs();
-  installPtb156Enhancements();
-  installPtb156HourFormPatch();
-  switchTab('salaryEntry');
-  setupGlobalClearButton();
+  makeButton('正在確認 Google 帳號', true);
+  createBridge();
+  renderGoogleSignIn();
 }
+
+bootstrap();

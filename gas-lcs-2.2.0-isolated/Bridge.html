@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+</head>
+<body>
+<script>
+  'use strict';
+  const bootstrap = <?!= bridgeBootstrapJson ?>;
+  const allowedParentWindows = [];
+
+  (function captureAncestorWindows() {
+    let ancestor = window;
+    while (ancestor !== ancestor.parent) {
+      ancestor = ancestor.parent;
+      allowedParentWindows.push(ancestor);
+    }
+  })();
+
+  function post(message) {
+    allowedParentWindows.forEach(function(ancestor) {
+      ancestor.postMessage(Object.assign({
+        channel: bootstrap.bridgeChannel
+      }, message), bootstrap.allowedParentOrigin);
+    });
+  }
+
+  function normalizeError(error) {
+    const message = String(error && error.message ? error.message : error || 'Unknown GAS error');
+    const separator = message.indexOf(':');
+    const code = separator > 0 ? message.slice(0, separator).trim() : 'GAS_ERROR';
+    return {
+      code: code,
+      message: separator > 0 ? message.slice(separator + 1).trim() : message
+    };
+  }
+
+  window.addEventListener('message', function(event) {
+    if (allowedParentWindows.indexOf(event.source) === -1) return;
+    if (event.origin !== bootstrap.allowedParentOrigin) return;
+
+    const request = event.data;
+    if (!request || request.channel !== bootstrap.bridgeChannel || request.kind !== 'request') return;
+
+    google.script.run
+      .withSuccessHandler(function(result) {
+        post({ kind: 'response', requestId: request.requestId, ok: true, result: result });
+      })
+      .withFailureHandler(function(error) {
+        post({ kind: 'response', requestId: request.requestId, ok: false, error: normalizeError(error) });
+      })
+      .bridgeDispatch(request);
+  });
+
+  post({ kind: 'ready', appVersion: bootstrap.appVersion });
+</script>
+</body>
+</html>

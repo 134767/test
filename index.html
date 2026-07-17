@@ -3,22 +3,19 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>工讀時薪計算系統</title>
-  <link rel="stylesheet" href="css/style.css">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <title>LCS 2.2.0 Isolated Runtime Test</title>
+  <link rel="stylesheet" href="./css/style.css?v=2.2.0-isolated-runtime-test">
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="./js/runtime-config.js?v=2.2.0-isolated-runtime-test"></script>
+  <script type="module" src="./js/app.js?v=2.2.0-isolated-runtime-test-payload-v2"></script>
 </head>
 <body>
-  <div class="app-container">
-    <header>
-      <h1>工讀時薪計算系統 <span class="version">版本 1.6.0</span></h1>
-    </header>
-
-    <div id="tab-bar" class="tab-bar"></div>
-    <div id="main-content" class="main-content"></div>
-  </div>
-
-  <script type="module">
-    import { bootstrap } from './js/app.js?v=1.6.0';
-    bootstrap().catch(err => { console.error(err); alert('系統初始化失敗，請重新整理後再試。'); });
-  </script>
+  <main class="test-shell" aria-labelledby="app-title">
+    <h1 id="app-title">LCS 2.2.0 Isolated Runtime Test</h1>
+    <div id="action-slot" class="action-slot" aria-live="polite"></div>
+    <output id="timestamp-output" class="timestamp-output" aria-label="最後寫入時間">—</output>
+  </main>
+  <div id="bridge-host" hidden></div>
 </body>
 </html>
